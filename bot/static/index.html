@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Авторадар</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  :root{
+    --bg:var(--tg-theme-bg-color,#0c1014);
+    --surface:var(--tg-theme-secondary-bg-color,#151b22);
+    --surface-2:#1b222b;
+    --text:var(--tg-theme-text-color,#eef2f6);
+    --muted:var(--tg-theme-hint-color,#8a96a4);
+    --accent:var(--tg-theme-button-color,#3d8bfd);
+    --accent-ink:var(--tg-theme-button-text-color,#ffffff);
+    --green:#32d583;--red:#ff5d57;--amber:#ffc53d;
+    --line:rgba(255,255,255,.06);
+    --r-lg:20px;--r-md:14px;
+    --shadow-sm:0 2px 12px rgba(0,0,0,.20);
+  }
+  html,body{height:100%;}
+  body{
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,"Segoe UI",sans-serif;
+    background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:color-mix(in srgb,var(--accent) 40%,transparent);}
+
+  /* header */
+  header{position:sticky;top:0;z-index:10;padding:16px 18px 10px;
+    background:linear-gradient(var(--bg) 68%,transparent);backdrop-filter:blur(10px);}
+  header h1{font-size:21px;font-weight:800;letter-spacing:-.4px;}
+  header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+
+  main{padding:0 14px calc(108px + env(safe-area-inset-bottom));}
+  .screen{display:none;animation:fade .28s cubic-bezier(.22,.61,.36,1);}
+  .screen.active{display:block;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
+  /* chips */
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:8px 2px 14px;scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none;}
+  .chip{flex:0 0 auto;padding:8px 15px;border-radius:999px;background:var(--surface);
+    color:var(--text);font-size:13px;font-weight:600;border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:all .18s ease;}
+  .chip:active{transform:scale(.96);}
+  .chip.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;
+    box-shadow:0 5px 16px color-mix(in srgb,var(--accent) 45%,transparent);}
+  .chips-label{color:var(--muted);font-size:11.5px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.6px;margin:12px 4px 2px;}
+
+  /* card */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+    overflow:hidden;margin-bottom:14px;box-shadow:var(--shadow-sm);cursor:pointer;
+    transition:transform .14s ease;}
+  .card:active{transform:scale(.985);}
+  .photo{position:relative;aspect-ratio:16/9;background-size:cover;background-position:center;
+    background-color:#10151b;}
+  .photo::after{content:"";position:absolute;inset:50% 0 0 0;
+    background:linear-gradient(transparent,rgba(0,0,0,.5));}
+  /* brand-emblem placeholder (shown until a listing photo is scraped) */
+  .photo.logo-ph{aspect-ratio:5/2;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(120% 150% at 50% 0,#243040,#11161d 72%);}
+  .photo.logo-ph::after{display:none;}
+  .logo-img{height:60px;max-width:56%;object-fit:contain;background:#fff;border-radius:14px;
+    padding:11px 16px;box-shadow:0 8px 20px rgba(0,0,0,.32);}
+  .logo-fallback{width:74px;height:60px;font-size:36px;background:#fff;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 8px 20px rgba(0,0,0,.32);}
+  /* badges overlay row (space-between is robust inside the flex logo panel) */
+  .ph-top{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;
+    justify-content:space-between;align-items:flex-start;padding:11px;pointer-events:none;}
+  .badge{padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:700;color:#fff;
+    background:rgba(12,16,20,.5);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12);}
+  .benefit{padding:5px 11px;border-radius:999px;font-size:13px;font-weight:800;color:#06140c;
+    background:var(--green);box-shadow:0 5px 16px color-mix(in srgb,var(--green) 42%,transparent);}
+  .benefit.neg{color:#fff;background:var(--red);
+    box-shadow:0 5px 16px color-mix(in srgb,var(--red) 42%,transparent);}
+  .card-body{padding:13px 15px 15px;}
+  .card-title{font-size:15.5px;font-weight:700;line-height:1.3;letter-spacing:-.2px;}
+  .card-title .year{color:var(--muted);font-weight:600;}
+  .price-row{display:flex;align-items:baseline;gap:10px;margin-top:7px;flex-wrap:wrap;}
+  .price{font-size:21px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums;}
+  .market{color:var(--muted);font-size:12.5px;}
+  .market b{color:var(--text);font-weight:600;}
+  .specs{color:var(--muted);font-size:12.5px;margin-top:7px;line-height:1.4;}
+  .conf{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+  .warn{margin-top:11px;padding:10px 12px;border-radius:12px;font-size:12.5px;line-height:1.4;
+    background:color-mix(in srgb,var(--amber) 13%,transparent);color:var(--amber);
+    border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);}
+
+  /* report button */
+  .report-btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;
+    margin-top:12px;padding:11px;border:0;border-radius:12px;color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 13%,transparent);
+    font-size:13px;font-weight:700;cursor:pointer;transition:transform .12s,background .15s;}
+  .report-btn:active{transform:scale(.99);background:color-mix(in srgb,var(--accent) 20%,transparent);}
+
+  /* skeleton */
+  .skeleton{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;
+    margin-bottom:14px;background:var(--surface);}
+  .sk{background:linear-gradient(100deg,transparent 28%,rgba(255,255,255,.06) 50%,transparent 72%) var(--surface);
+    background-size:220% 100%;animation:shimmer 1.25s infinite;}
+  @keyframes shimmer{to{background-position-x:-220%;}}
+  .sk-photo{aspect-ratio:16/9;}
+  .sk-line{height:13px;border-radius:7px;margin:13px 15px;}
+  .sk-line.short{width:52%;}
+
+  /* buttons & inputs */
+  .btn{display:block;width:100%;padding:15px;border:0;border-radius:14px;
+    background:var(--accent);color:var(--accent-ink);font-size:15px;font-weight:700;cursor:pointer;
+    box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 35%,transparent);
+    transition:transform .12s,opacity .15s,filter .15s;}
+  .btn:active{transform:scale(.985);filter:brightness(.97);}
+  .btn[disabled]{opacity:.5;box-shadow:none;}
+  .btn.ghost{background:var(--surface);color:var(--accent);box-shadow:none;border:1px solid var(--line);}
+  .input-wrap{display:flex;gap:9px;margin:6px 0 12px;}
+  input[type=url]{flex:1;padding:14px;border-radius:14px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);font-size:14px;outline:none;transition:border-color .15s;}
+  input[type=url]:focus{border-color:var(--accent);}
+  input::placeholder{color:var(--muted);}
+
+  .empty{text-align:center;color:var(--muted);padding:52px 24px;}
+  .empty .ico{font-size:42px;display:block;margin-bottom:12px;opacity:.9;}
+  .hintline{color:var(--muted);font-size:13px;line-height:1.5;margin:4px 4px 14px;}
+
+  /* detail / report */
+  #screen-detail{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;
+    padding:0 15px calc(28px + env(safe-area-inset-bottom));display:none;}
+  #screen-detail.active{display:block;animation:fade .26s cubic-bezier(.22,.61,.36,1);}
+  .detail-bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:11px;
+    padding:14px 0 12px;background:linear-gradient(var(--bg) 78%,transparent);}
+  .detail-bar button{border:1px solid var(--line);background:var(--surface);color:var(--text);
+    cursor:pointer;width:40px;height:40px;border-radius:12px;font-size:22px;line-height:1;}
+  .detail-bar button:active{transform:scale(.95);}
+  .detail-bar h2{font-size:17px;font-weight:800;line-height:1.2;letter-spacing:-.3px;}
+  .detail-bar .y{color:var(--muted);font-weight:600;}
+  .verdict{border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;margin-bottom:6px;
+    background:linear-gradient(180deg,var(--surface-2),var(--surface));box-shadow:var(--shadow-sm);}
+  .vrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .vrow+.vrow{margin-top:7px;}
+  .lbl{color:var(--muted);font-size:13px;}
+  .ask{font-size:25px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums;}
+  .fair{font-size:16px;font-weight:700;color:var(--green);font-variant-numeric:tabular-nums;}
+  .disc-big{margin-top:13px;padding:12px;border-radius:12px;text-align:center;font-size:14px;
+    font-weight:800;background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green);}
+  .disc-big.neg{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red);}
+  .vsum{margin-top:12px;font-size:13.5px;line-height:1.45;}
+  .conf-note{color:var(--muted);font-size:12px;margin-top:10px;text-align:center;}
+
+  .sec-title{font-size:12.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+    color:var(--muted);margin:22px 4px 11px;}
+  .sec-sub{color:var(--muted);font-size:12.5px;margin:-7px 4px 12px;line-height:1.4;}
+
+  .why-item{display:flex;gap:9px;align-items:flex-start;background:var(--surface);
+    border:1px solid var(--line);border-radius:13px;padding:12px 14px;margin-bottom:9px;
+    font-size:13.5px;line-height:1.4;}
+  .why-item .m{flex:0 0 auto;font-weight:800;font-size:15px;line-height:1.25;}
+  .why-item .m.up{color:var(--green);}
+  .why-item .m.down{color:var(--muted);}
+
+  /* reliability (AI) block */
+  .rel-load{display:flex;align-items:center;gap:11px;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px;
+    font-size:13px;color:var(--muted);line-height:1.4;}
+  .spin{flex:0 0 auto;width:18px;height:18px;border-radius:50%;
+    border:2.5px solid var(--line);border-top-color:var(--accent);animation:rot .8s linear infinite;}
+  @keyframes rot{to{transform:rotate(360deg);}}
+  .rel{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:16px;margin-top:12px;}
+  .rel-head{display:flex;gap:14px;align-items:center;}
+  .rel-score{flex:0 0 auto;width:62px;height:62px;border-radius:16px;display:flex;
+    align-items:center;justify-content:center;font-size:24px;font-weight:800;
+    flex-direction:column;line-height:1;}
+  .rel-score span{font-size:10px;font-weight:600;opacity:.7;margin-top:2px;}
+  .rel-score.good{background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green);}
+  .rel-score.warn{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber);}
+  .rel-score.bad{background:color-mix(in srgb,var(--red) 18%,transparent);color:var(--red);}
+  .rel-verdict{font-size:15px;font-weight:800;text-transform:capitalize;}
+  .rel-verdict.good{color:var(--green);} .rel-verdict.warn{color:var(--amber);} .rel-verdict.bad{color:var(--red);}
+  .rel-sum{font-size:13px;color:var(--text);margin-top:4px;line-height:1.4;}
+  .rel-t{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;
+    color:var(--muted);margin:15px 0 7px;}
+  .rel-list{margin:0;padding-left:18px;font-size:13px;line-height:1.5;}
+  .rel-list li{margin-bottom:4px;}
+  .rel-foot{margin-top:14px;font-size:11.5px;color:var(--muted);}
+
+  .cmp{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;margin-bottom:10px;cursor:pointer;transition:transform .12s;}
+  .cmp:active{transform:scale(.99);}
+  .cmp .ci{flex:1;min-width:0;}
+  .cmp .ct{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cmp .cs{color:var(--muted);font-size:12px;margin-top:3px;}
+  .cmp .cp{text-align:right;}
+  .cmp .cprice{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .cmp .cmore{font-size:11.5px;font-weight:700;margin-top:2px;}
+  .cmp .cmore.up{color:var(--red);}
+  .cmp .cmore.down{color:var(--green);}
+
+  /* tab bar */
+  nav{position:fixed;bottom:0;left:0;right:0;z-index:20;display:flex;gap:4px;
+    padding:9px 12px calc(10px + env(safe-area-inset-bottom));
+    background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(18px);
+    border-top:1px solid var(--line);}
+  nav button{flex:1;border:0;background:none;color:var(--muted);font-size:11px;font-weight:600;
+    cursor:pointer;padding:7px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;
+    border-radius:14px;transition:color .18s,background .18s;}
+  nav button .ico{font-size:20px;line-height:1;transition:transform .18s;}
+  nav button.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);}
+  nav button.on .ico{transform:translateY(-1px) scale(1.06);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="title">🚗 Авторадар</h1>
+  <div class="sub" id="subtitle">недооценённые машины в реальном времени</div>
+</header>
+
+<main>
+  <!-- ============ СДЕЛКИ ============ -->
+  <section id="screen-deals" class="screen active">
+    <div class="chips" id="deal-cat-chips"></div>
+    <div class="chips" id="deal-budget-chips"></div>
+    <div id="deals-list"></div>
+    <button class="btn ghost" id="deals-more" style="display:none;margin:2px 0 10px">
+      🔄 Другие объявления
+    </button>
+  </section>
+
+  <!-- ============ ПОДБОР ============ -->
+  <section id="screen-pick" class="screen">
+    <div class="chips-label">Бюджет</div>
+    <div class="chips" id="pick-budget-chips"></div>
+    <div class="chips-label">Марка</div>
+    <div class="chips" id="pick-brand-chips"></div>
+    <div class="chips-label" id="pick-model-label" style="display:none">Модель</div>
+    <div class="chips" id="pick-model-chips"></div>
+    <button class="btn" id="pick-go" style="margin: 6px 0 16px">Показать варианты</button>
+    <div id="pick-list"></div>
+  </section>
+
+  <!-- ============ ОЦЕНКА ============ -->
+  <section id="screen-eval" class="screen">
+    <p class="hintline">Вставьте ссылку на объявление auto.ru — посчитаем справедливую цену и выгоду.</p>
+    <div class="input-wrap">
+      <input type="url" id="eval-url" placeholder="https://auto.ru/cars/used/sale/…" inputmode="url">
+      <button class="btn ghost" id="eval-paste" style="width:auto;padding:0 14px">📋</button>
+    </div>
+    <button class="btn" id="eval-go">Оценить машину</button>
+    <div id="eval-result" style="margin-top:16px"></div>
+  </section>
+</main>
+
+<!-- ============ ОТЧЁТ (почему выгодно) ============ -->
+<section id="screen-detail">
+  <div class="detail-bar">
+    <button id="detail-back">‹</button>
+    <h2 id="detail-title"></h2>
+  </div>
+  <div id="detail-body"></div>
+</section>
+
+<nav>
+  <button data-screen="deals" class="on"><span class="ico">🔥</span>Сделки</button>
+  <button data-screen="pick"><span class="ico">🎯</span>Подбор</button>
+  <button data-screen="eval"><span class="ico">🧮</span>Оценка</button>
+</nav>
+
+<script>
+"use strict";
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const BUDGETS = [
+  ["Все", 0, 0],
+  ["до 500 тыс.", 0, 500000],
+  ["500к – 1 млн", 500000, 1000000],
+  ["1–2 млн", 1000000, 2000000],
+  ["2–4 млн", 2000000, 4000000],
+  ["4 млн +", 4000000, 1000000000],
+];
+const CONF = { low: ["#ff5b50", "низкая"], medium: ["#f6c244", "средняя"], high: ["#2ecc71", "высокая"] };
+
+const haptic = (style = "light") => tg && tg.HapticFeedback &&
+  tg.HapticFeedback.impactOccurred(style);
+const openLink = (url) => (tg ? tg.openLink(url) : window.open(url, "_blank"));
+const fmtPrice = (v) => v.toLocaleString("ru-RU").replace(/ /g, " ") + " ₽";
+const fmtKm = (v) => (v >= 1000 ? Math.round(v / 1000) + " тыс. км" : v + " км");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const titleCase = (s) => String(s).replace(/(^|\s)\S/g, (t) => t.toUpperCase());
+const inlineReports = {};
+
+async function api(path, params = {}) {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== null && v !== "" && v !== undefined)
+  );
+  const resp = await fetch(`/api/${path}?${qs}`, {
+    headers: tg && tg.initData ? { "X-Telegram-Init-Data": tg.initData } : {},
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.detail || `Ошибка сервера (${resp.status})`);
+  }
+  return resp.json();
+}
+
+/* ---------- rendering ---------- */
+function cardHTML(d) {
+  const benefit = d.discount_pct;
+  const conf = CONF[d.confidence] || CONF.medium;
+  const benefitText = `${benefit > 0 ? "+" : ""}${benefit.toFixed(1)}%`;
+  const priceRow = `
+      <div class="price-row">
+        <span class="price">${fmtPrice(d.price)}</span>
+        <span class="market">рынок <b>${fmtPrice(d.predicted_price)}</b></span>
+      </div>`;
+  const specs = `
+      <div class="specs">
+        <span class="conf" style="background:${conf[0]}"></span>${fmtKm(d.mileage)} · ${esc(d.engine)} · ${esc(d.transmission)} · ${esc(d.region)}
+      </div>`;
+  const warn = d.suspicious_reason
+    ? `<div class="warn">⚠️ ${esc(d.suspicious_reason)}</div>` : "";
+  const report = d.ad_id
+    ? `<button class="report-btn" data-report="${d.ad_id}">📊 Почему это выгодно</button>`
+    : "";
+  const overlay = `<div class="ph-top">
+      <span class="badge">${esc(d.grade)}</span>
+      <span class="benefit ${benefit < 0 ? "neg" : ""}">${benefitText}</span></div>`;
+  // Listing photo when we have one; otherwise the brand emblem (with a 🚗
+  // glyph fallback if the logo image fails to load).
+  const photoArea = d.image_url
+    ? `<div class="photo" style="background-image:url('${esc(d.image_url)}')">${overlay}</div>`
+    : `<div class="photo logo-ph">
+        <img class="logo-img" src="${esc(d.logo_url)}" alt="" loading="lazy"
+             onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'logo-fallback',textContent:'🚗'}))">
+        ${overlay}</div>`;
+  return `
+  <article class="card" data-url="${esc(d.url)}">
+    ${photoArea}
+    <div class="card-body">
+      <div class="card-title">${esc(d.title)} <span class="year">· ${d.year}</span></div>
+      ${priceRow}${specs}${warn}${report}
+    </div>
+  </article>`;
+}
+
+function renderList(el, deals, emptyText) {
+  if (!deals.length) {
+    el.innerHTML = `<div class="empty"><span class="ico">🔍</span>${emptyText}</div>`;
+    return;
+  }
+  // Stash any inline reports (evaluated ads aren't in the market frame, so the
+  // detail screen can't fetch them by ad_id later).
+  deals.forEach((d) => { if (d.ad_id && d.report) inlineReports[d.ad_id] = d.report; });
+  el.innerHTML = deals.map(cardHTML).join("");
+  el.querySelectorAll(".card").forEach((c) =>
+    c.addEventListener("click", (e) => {
+      if (e.target.closest(".report-btn")) return;
+      haptic("medium"); openLink(c.dataset.url);
+    })
+  );
+  el.querySelectorAll(".report-btn").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation(); haptic("medium"); openReport(+b.dataset.report);
+    })
+  );
+}
+
+function renderSkeletons(el, n = 3) {
+  el.innerHTML = Array(n).fill(
+    `<div class="skeleton"><div class="sk sk-photo"></div>
+     <div class="sk sk-line"></div><div class="sk sk-line short"></div></div>`
+  ).join("");
+}
+
+function renderError(el, message) {
+  el.innerHTML = `<div class="empty"><span class="ico">😕</span>${esc(message)}</div>`;
+}
+
+function makeChips(el, items, onSelect, selected = 0) {
+  el.innerHTML = "";
+  items.forEach((label, i) => {
+    const chip = document.createElement("button");
+    chip.className = "chip" + (i === selected ? " on" : "");
+    chip.textContent = label;
+    chip.addEventListener("click", () => {
+      haptic();
+      el.querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
+      chip.classList.add("on");
+      onSelect(i);
+    });
+    el.appendChild(chip);
+  });
+}
+
+/* ---------- screen: detail / report ---------- */
+const detailScreen = document.getElementById("screen-detail");
+const detailBody = document.getElementById("detail-body");
+const detailTitle = document.getElementById("detail-title");
+
+function showDetail(on) {
+  detailScreen.classList.toggle("active", on);
+  if (tg && tg.BackButton) { on ? tg.BackButton.show() : tg.BackButton.hide(); }
+  if (on) detailScreen.scrollTop = 0;
+}
+
+async function openReport(adId) {
+  detailTitle.textContent = "Отчёт";
+  detailBody.innerHTML = `<div class="empty"><span class="ico">⏳</span>Считаю факторы оценки…</div>`;
+  showDetail(true);
+  try {
+    const rep = inlineReports[adId] || await api("explain", { ad_id: adId });
+    renderReport(rep);
+  } catch (e) {
+    detailBody.innerHTML = `<div class="empty"><span class="ico">😕</span>${esc(e.message)}</div>`;
+  }
+}
+
+function renderReport(r) {
+  detailTitle.innerHTML = `${esc(r.title)} <span class="y">· ${r.year}</span>`;
+  const disc = r.discount_pct;
+  const discTxt = disc > 0
+    ? `Дешевле рыночной оценки на ${disc.toFixed(1)}% — выгода ${fmtPrice(r.predicted_price - r.price)}`
+    : `Дороже рыночной оценки на ${Math.abs(disc).toFixed(1)}%`;
+  const confTxt = {
+    low: "оценка по нескольким похожим — точность невысокая",
+    medium: `оценка по ${r.sample_count} похожим объявлениям`,
+    high: `надёжная оценка по ${r.sample_count} похожим объявлениям`,
+  }[r.confidence] || "";
+
+  const items = (arr, cls, sign) => (arr || [])
+    .map((s) => `<div class="why-item"><span class="m ${cls}">${sign}</span>${esc(s)}</div>`)
+    .join("");
+  const strengthsHTML = items(r.strengths, "up", "+");
+  const caveatsHTML = items(r.caveats, "down", "−");
+
+  const cmpHTML = r.comparables.length
+    ? r.comparables.map((c) => {
+        const d2 = c.diff_pct, dearer = d2 >= 0;
+        const tag = `${dearer ? "+" : "−"}${Math.abs(d2)}% ${dearer ? "дороже" : "дешевле"}`;
+        return `
+      <div class="cmp" data-url="${esc(c.url)}">
+        <div class="ci"><div class="ct">${esc(c.title)} · ${c.year}</div>
+          <div class="cs">${fmtKm(c.mileage)}</div></div>
+        <div class="cp"><div class="cprice">${fmtPrice(c.price)}</div>
+          <div class="cmore ${dearer ? "up" : "down"}">${tag}</div></div>
+      </div>`;
+      }).join("")
+    : `<div class="sec-sub">Похожих объявлений этой модели в продаже сейчас мало — сравнивать не с чем.</div>`;
+
+  detailBody.innerHTML = `
+    <div class="verdict">
+      <div class="vrow"><span class="lbl">Цена в объявлении</span>
+        <span class="ask">${fmtPrice(r.price)}</span></div>
+      <div class="vrow"><span class="lbl">Справедливая цена</span>
+        <span class="fair">${fmtPrice(r.predicted_price)}</span></div>
+      <div class="disc-big${disc < 0 ? " neg" : ""}">${discTxt}</div>
+      ${r.verdict ? `<div class="vsum">${esc(r.verdict)}</div>` : ""}
+      <div class="conf-note">${esc(r.grade)} · ${confTxt}</div>
+    </div>
+    ${strengthsHTML ? `<div class="sec-title">Чем хороша</div>
+    <div class="sec-sub">Плюсы этой машины — за них обычно и доплачивают:</div>${strengthsHTML}` : ""}
+    ${caveatsHTML ? `<div class="sec-title">Что снижает цену</div>
+    <div class="sec-sub">Минусы — но они уже учтены в оценке:</div>${caveatsHTML}` : ""}
+    ${(!strengthsHTML && !caveatsHTML) ? `<div class="sec-sub" style="margin-top:18px">Параметры этой машины близки к средним по модели.</div>` : ""}
+    <div class="sec-title">${esc(r.comp_title || "Похожие в продаже")}</div>
+    <div class="sec-sub">${esc(r.comp_sub || "")}</div>
+    ${cmpHTML}
+    <button class="btn ghost" id="reliability-btn" data-adid="${r.ad_id || ""}" style="margin-top:18px">🔧 Проверить надёжность</button>
+    <div id="reliability-box"></div>
+    <button class="btn" id="detail-open" style="margin-top:12px">Открыть объявление на auto.ru</button>
+  `;
+  const relBtn = document.getElementById("reliability-btn");
+  if (relBtn && relBtn.dataset.adid) {
+    relBtn.addEventListener("click", () => loadReliability(+relBtn.dataset.adid));
+  } else if (relBtn) {
+    relBtn.style.display = "none";
+  }
+  detailBody.querySelectorAll(".cmp").forEach((c) =>
+    c.addEventListener("click", () => { haptic(); openLink(c.dataset.url); }));
+  document.getElementById("detail-open").addEventListener("click", () => {
+    haptic("medium"); openLink(r.url);
+  });
+}
+
+async function loadReliability(adId) {
+  haptic("medium");
+  const btn = document.getElementById("reliability-btn");
+  const box = document.getElementById("reliability-box");
+  if (btn) btn.style.display = "none";
+  box.innerHTML = `<div class="rel-load"><span class="spin"></span>
+    Анализирую надёжность — ищу болячки этой модели в интернете. Это займёт до минуты…</div>`;
+  try {
+    const d = await api("reliability", { ad_id: adId });
+    const v = (d.verdict || "").toLowerCase();
+    const cls = v.includes("риск") ? "bad" : v.includes("осторож") ? "warn" : "good";
+    const list = (arr) => (arr && arr.length)
+      ? `<ul class="rel-list">${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+    box.innerHTML = `
+      <div class="rel">
+        <div class="rel-head">
+          <div class="rel-score ${cls}">${d.score ?? "—"}<span>/10</span></div>
+          <div><div class="rel-verdict ${cls}">${esc(d.verdict || "")}</div>
+            <div class="rel-sum">${esc(d.summary || "")}</div></div>
+        </div>
+        ${d.weak_points && d.weak_points.length ? `<div class="rel-t">Типичные болячки</div>${list(d.weak_points)}` : ""}
+        ${d.at_mileage && d.at_mileage.length ? `<div class="rel-t">На таком пробеге</div>${list(d.at_mileage)}` : ""}
+        ${d.checklist && d.checklist.length ? `<div class="rel-t">Проверить перед покупкой</div>${list(d.checklist)}` : ""}
+        <div class="rel-foot">⚡ ИИ-анализ по данным из интернета · перепроверяйте на осмотре</div>
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="rel-load">😕 ${esc(e.message)}</div>`;
+    if (btn) { btn.style.display = "block"; btn.textContent = "🔧 Повторить проверку"; }
+  }
+}
+
+document.getElementById("detail-back").addEventListener("click", () => {
+  haptic(); showDetail(false);
+});
+if (tg && tg.BackButton) tg.BackButton.onClick(() => showDetail(false));
+
+/* ---------- screen: deals ---------- */
+const dealsList = document.getElementById("deals-list");
+const dealsMore = document.getElementById("deals-more");
+const PAGE = 10;
+const CATEGORIES = [
+  ["Все", ""],
+  ["🇩🇪 Немецкие", "german"],
+  ["🇯🇵 Японские", "japanese"],
+  ["🇨🇳 Китайские", "chinese"],
+  ["💎 Премиум", "premium"],
+  ["🚙 Внедорожники", "suv"],
+  ["🏎 Спортивные", "sporty"],
+  ["⚡ Электро", "electric"],
+];
+let dealBudget = 0, dealOffset = 0, dealCategory = "";
+
+const SUBTITLES = {
+  deals: "недооценённые машины в реальном времени",
+  pick: "бюджет и марка — покажу лучшее на рынке",
+  eval: "справедливая цена по ссылке на объявление",
+};
+
+async function loadDeals() {
+  renderSkeletons(dealsList);
+  dealsMore.style.display = "none";
+  const [, lo, hi] = BUDGETS[dealBudget];
+  const q = () => ({ n: PAGE, offset: dealOffset || null, category: dealCategory || null, min_price: lo || null, max_price: hi || null });
+  try {
+    let deals = await api("top", q());
+    // Reached the end of the ranking → loop back to the best deals.
+    if (!deals.length && dealOffset > 0) { dealOffset = 0; deals = await api("top", q()); }
+    SUBTITLES.deals = dealOffset
+      ? "ещё выгодные варианты"
+      : `топ-${deals.length} сделок · обновляется каждые 15 мин`;
+    if (document.getElementById("screen-deals").classList.contains("active")) {
+      document.getElementById("subtitle").textContent = SUBTITLES.deals;
+    }
+    renderList(dealsList, deals, "Под этот бюджет сделок сейчас нет");
+    dealsMore.style.display = deals.length >= PAGE || dealOffset > 0 ? "block" : "none";
+  } catch (e) { renderError(dealsList, e.message); }
+}
+
+dealsMore.addEventListener("click", () => {
+  haptic("medium");
+  dealOffset += PAGE;
+  loadDeals();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+makeChips(document.getElementById("deal-cat-chips"),
+  CATEGORIES.map(c => c[0]),
+  (i) => { dealCategory = CATEGORIES[i][1]; dealOffset = 0; loadDeals(); });
+makeChips(document.getElementById("deal-budget-chips"),
+  BUDGETS.map(b => b[0]), (i) => { dealBudget = i; dealOffset = 0; loadDeals(); });
+
+/* ---------- screen: pick ---------- */
+const pickList = document.getElementById("pick-list");
+const pickModelLabel = document.getElementById("pick-model-label");
+const pickModelChips = document.getElementById("pick-model-chips");
+let pickBudget = 3, pickBrand = null, pickModel = null, brands = [];
+
+makeChips(document.getElementById("pick-budget-chips"),
+  BUDGETS.slice(1).map(b => b[0]), (i) => { pickBudget = i + 1; }, 2);
+
+async function loadModels(brand) {
+  pickModel = null;
+  if (!brand) { pickModelLabel.style.display = "none"; pickModelChips.innerHTML = ""; return; }
+  let models = [];
+  try { models = await api("models", { brand }); } catch { models = []; }
+  if (!models.length) { pickModelLabel.style.display = "none"; pickModelChips.innerHTML = ""; return; }
+  pickModelLabel.style.display = "";
+  makeChips(pickModelChips, ["Любая", ...models.map(titleCase)],
+    (i) => { pickModel = i === 0 ? null : models[i - 1]; });
+}
+
+async function loadBrands() {
+  try { brands = await api("brands"); } catch { brands = []; }
+  makeChips(document.getElementById("pick-brand-chips"),
+    ["Любая", ...brands.map(titleCase)],
+    (i) => { pickBrand = i === 0 ? null : brands[i - 1]; loadModels(pickBrand); });
+}
+
+document.getElementById("pick-go").addEventListener("click", async () => {
+  haptic("medium");
+  renderSkeletons(pickList);
+  const [, lo, hi] = BUDGETS[pickBudget];
+  try {
+    const deals = await api("pick",
+      { budget_from: lo, budget_to: hi, brand: pickBrand, model: pickModel });
+    renderList(pickList, deals, "Ничего не нашлось — расширьте бюджет или смените марку");
+  } catch (e) { renderError(pickList, e.message); }
+});
+
+/* ---------- screen: eval ---------- */
+const evalResult = document.getElementById("eval-result");
+const evalInput = document.getElementById("eval-url");
+const evalGo = document.getElementById("eval-go");
+
+document.getElementById("eval-paste").addEventListener("click", async () => {
+  haptic();
+  try { evalInput.value = await navigator.clipboard.readText(); } catch { /* denied */ }
+});
+
+evalGo.addEventListener("click", async () => {
+  const url = evalInput.value.trim();
+  if (!url.includes("auto.ru/")) {
+    haptic("heavy");
+    renderError(evalResult, "Это не похоже на ссылку auto.ru");
+    return;
+  }
+  haptic("medium");
+  evalGo.disabled = true;
+  evalGo.textContent = "Считаю…";
+  renderSkeletons(evalResult, 1);
+  try {
+    const d = await api("evaluate", { url });
+    renderList(evalResult, [d], "");
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+  } catch (e) {
+    renderError(evalResult, e.message);
+  } finally {
+    evalGo.disabled = false;
+    evalGo.textContent = "Оценить машину";
+  }
+});
+
+/* ---------- tabs ---------- */
+document.querySelectorAll("nav button").forEach((btn) =>
+  btn.addEventListener("click", () => {
+    haptic();
+    document.querySelectorAll("nav button").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+    document.getElementById("screen-" + btn.dataset.screen).classList.add("active");
+    const titles = { deals: "🚗 Авторадар", pick: "🎯 Подбор машины", eval: "🧮 Оценка авто" };
+    document.getElementById("title").textContent = titles[btn.dataset.screen];
+    document.getElementById("subtitle").textContent = SUBTITLES[btn.dataset.screen];
+  })
+);
+
+loadDeals();
+loadBrands();
+</script>
+</body>
+</html>

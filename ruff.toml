@@ -1,0 +1,12 @@
+line-length = 88
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "I"]
+
+[lint.per-file-ignores]
+# Streamlit entry points must patch sys.path before any project imports
+# (app.py would otherwise shadow the `app` package).
+"app/**" = ["E402"]
+# truststore.inject_into_ssl() must run before aiohttp is imported.
+"scraper/parser.py" = ["E402"]

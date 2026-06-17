@@ -1,0 +1,61 @@
+services:
+  # One-shot: scrape real auto.ru data and train the model into the shared volume
+  init:
+    build: .
+    user: root
+    command: >
+      sh -c "chown -R appuser:appuser /app/data /app/model/artifacts && su appuser -c 'python -m scraper.runner --pages 20 && python -m model.train'"
+    environment:
+      SCRAPER_BASE_URL: "${SCRAPER_BASE_URL:-https://auto.ru}"
+      SCRAPER_REGIONS: "${SCRAPER_REGIONS:-rossiya}"
+    volumes:
+      - app-data:/app/data
+      - model-artifacts:/app/model/artifacts
+
+  dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - app-data:/app/data
+      - model-artifacts:/app/model/artifacts
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Telegram bot: top deals, evaluate-by-link, hot-deal push notifications.
+  # Starts only with the profile: TELEGRAM_BOT_TOKEN=... docker compose --profile bot up
+  bot:
+    build: .
+    command: python -m bot.main
+    profiles: ["bot"]
+    environment:
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      BOT_WATCH_INTERVAL_MINUTES: "${BOT_WATCH_INTERVAL_MINUTES:-15}"
+    volumes:
+      - app-data:/app/data
+      - model-artifacts:/app/model/artifacts
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Background re-scraping of the freshest pages + auto-retrain
+  scheduler:
+    build: .
+    command: python -m scraper.scheduler
+    environment:
+      SCRAPER_BASE_URL: "${SCRAPER_BASE_URL:-https://auto.ru}"
+      SCRAPER_REGIONS: "${SCRAPER_REGIONS:-rossiya}"
+      SCRAPER_MAX_PAGES: "${SCRAPER_MAX_PAGES:-5}"
+      SCRAPE_INTERVAL_MINUTES: "${SCRAPE_INTERVAL_MINUTES:-15}"
+      RETRAIN_MIN_NEW_ADS: "${RETRAIN_MIN_NEW_ADS:-50}"
+    volumes:
+      - app-data:/app/data
+      - model-artifacts:/app/model/artifacts
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+volumes:
+  app-data:
+  model-artifacts:
