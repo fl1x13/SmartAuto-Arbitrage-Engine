@@ -119,6 +119,13 @@
     background:var(--surface);color:var(--text);font-size:14px;outline:none;transition:border-color .15s;}
   input[type=url]:focus{border-color:var(--accent);}
   input::placeholder{color:var(--muted);}
+  /* picker dropdowns (full brand/model catalog) */
+  .select{display:block;width:100%;padding:13px 14px;margin:2px 0 12px;border-radius:14px;
+    border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:14px;
+    font-weight:600;outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center;}
+  .select:focus{border-color:var(--accent);}
 
   .empty{text-align:center;color:var(--muted);padding:52px 24px;}
   .empty .ico{font-size:42px;display:block;margin-bottom:12px;opacity:.9;}
@@ -233,11 +240,14 @@
     <div class="chips-label">Бюджет</div>
     <div class="chips" id="pick-budget-chips"></div>
     <div class="chips-label">Марка</div>
-    <div class="chips" id="pick-brand-chips"></div>
+    <select class="select" id="pick-brand"><option value="">Любая марка</option></select>
     <div class="chips-label" id="pick-model-label" style="display:none">Модель</div>
-    <div class="chips" id="pick-model-chips"></div>
+    <select class="select" id="pick-model" style="display:none"><option value="">Любая модель</option></select>
     <button class="btn" id="pick-go" style="margin: 6px 0 16px">Показать варианты</button>
     <div id="pick-list"></div>
+    <button class="btn ghost" id="pick-more" style="display:none;margin:2px 0 10px">
+      Показать ещё
+    </button>
   </section>
 
   <!-- ============ ОЦЕНКА ============ -->
@@ -579,39 +589,71 @@ makeChips(document.getElementById("deal-budget-chips"),
 /* ---------- screen: pick ---------- */
 const pickList = document.getElementById("pick-list");
 const pickModelLabel = document.getElementById("pick-model-label");
-const pickModelChips = document.getElementById("pick-model-chips");
-let pickBudget = 3, pickBrand = null, pickModel = null, brands = [];
+const pickBrandSel = document.getElementById("pick-brand");
+const pickModelSel = document.getElementById("pick-model");
+const pickMore = document.getElementById("pick-more");
+let pickBudget = 3, pickBrand = null, pickModel = null;
+let pickOffset = 0, pickItems = [];
+const PICK_PAGE = 10;
 
 makeChips(document.getElementById("pick-budget-chips"),
   BUDGETS.slice(1).map(b => b[0]), (i) => { pickBudget = i + 1; }, 2);
 
+function fillSelect(sel, items, anyLabel) {
+  sel.innerHTML = `<option value="">${anyLabel}</option>` +
+    items.map(v => `<option value="${v}">${titleCase(v)}</option>`).join("");
+}
+
+// Full model list of the chosen brand (every model, alphabetical).
 async function loadModels(brand) {
   pickModel = null;
-  if (!brand) { pickModelLabel.style.display = "none"; pickModelChips.innerHTML = ""; return; }
+  pickModelSel.value = "";
+  if (!brand) { pickModelLabel.style.display = "none"; pickModelSel.style.display = "none"; return; }
   let models = [];
   try { models = await api("models", { brand }); } catch { models = []; }
-  if (!models.length) { pickModelLabel.style.display = "none"; pickModelChips.innerHTML = ""; return; }
+  if (!models.length) { pickModelLabel.style.display = "none"; pickModelSel.style.display = "none"; return; }
+  fillSelect(pickModelSel, models, "Любая модель");
   pickModelLabel.style.display = "";
-  makeChips(pickModelChips, ["Любая", ...models.map(titleCase)],
-    (i) => { pickModel = i === 0 ? null : models[i - 1]; });
+  pickModelSel.style.display = "";
 }
 
+// Full brand catalog (every brand, alphabetical).
 async function loadBrands() {
+  let brands = [];
   try { brands = await api("brands"); } catch { brands = []; }
-  makeChips(document.getElementById("pick-brand-chips"),
-    ["Любая", ...brands.map(titleCase)],
-    (i) => { pickBrand = i === 0 ? null : brands[i - 1]; loadModels(pickBrand); });
+  fillSelect(pickBrandSel, brands, "Любая марка");
 }
 
-document.getElementById("pick-go").addEventListener("click", async () => {
-  haptic("medium");
-  renderSkeletons(pickList);
+pickBrandSel.addEventListener("change", () => {
+  pickBrand = pickBrandSel.value || null;
+  loadModels(pickBrand);
+});
+pickModelSel.addEventListener("change", () => {
+  pickModel = pickModelSel.value || null;
+});
+
+// Paged picker: reset on a new search, append on "show more".
+async function runPick(reset) {
   const [, lo, hi] = BUDGETS[pickBudget];
+  if (reset) { pickOffset = 0; pickItems = []; renderSkeletons(pickList); pickMore.style.display = "none"; }
   try {
-    const deals = await api("pick",
-      { budget_from: lo, budget_to: hi, brand: pickBrand, model: pickModel });
-    renderList(pickList, deals, "Ничего не нашлось — расширьте бюджет или смените марку");
+    const page = await api("pick",
+      { budget_from: lo, budget_to: hi, brand: pickBrand, model: pickModel,
+        n: PICK_PAGE, offset: pickOffset });
+    pickItems = pickItems.concat(page);
+    renderList(pickList, pickItems, "Ничего не нашлось — расширьте бюджет или смените марку");
+    pickMore.style.display = page.length >= PICK_PAGE ? "block" : "none";
   } catch (e) { renderError(pickList, e.message); }
+}
+
+document.getElementById("pick-go").addEventListener("click", () => {
+  haptic("medium");
+  runPick(true);
+});
+pickMore.addEventListener("click", () => {
+  haptic("medium");
+  pickOffset += PICK_PAGE;
+  runPick(false);
 });
 
 /* ---------- screen: eval ---------- */

@@ -150,9 +150,9 @@ async def api_top(
 async def api_brands(
     x_telegram_init_data: str | None = Header(default=None),
 ) -> list[str]:
-    """Popular brands for the picker chips."""
+    """Every brand (alphabetical) for the picker dropdown."""
     _check_auth(x_telegram_init_data)
-    return await asyncio.to_thread(service.popular_brands, 12)
+    return await asyncio.to_thread(service.all_brands)
 
 
 @app.get("/api/models")
@@ -160,9 +160,9 @@ async def api_models(
     brand: str,
     x_telegram_init_data: str | None = Header(default=None),
 ) -> list[str]:
-    """Popular models of a brand for the picker chips."""
+    """Every model of a brand (alphabetical) for the picker dropdown."""
     _check_auth(x_telegram_init_data)
-    return await asyncio.to_thread(service.models_for_brand, brand, 14)
+    return await asyncio.to_thread(service.models_for_brand, brand)
 
 
 @app.get("/api/pick")
@@ -171,12 +171,14 @@ async def api_pick(
     budget_to: int = Query(gt=0),
     brand: str | None = None,
     model: str | None = None,
+    n: int = Query(default=10, le=30),
+    offset: int = Query(default=0, ge=0),
     x_telegram_init_data: str | None = Header(default=None),
 ) -> list[dict]:
-    """Picker results for a budget window."""
+    """Picker results for a budget window (offset/n page through the list)."""
     _check_auth(x_telegram_init_data)
     deals = await asyncio.to_thread(
-        service.pick_cars, budget_from, budget_to, brand, model
+        service.pick_cars, budget_from, budget_to, brand, model, n, offset
     )
     return [_row_to_json(row) for _, row in deals.iterrows()]
 

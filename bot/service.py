@@ -155,17 +155,22 @@ def pick_cars(
     budget_to: int,
     brand: str | None,
     model: str | None = None,
+    n: int | None = None,
+    offset: int = 0,
 ) -> pd.DataFrame:
-    """Car-picker results: best deals within a budget.
+    """Car-picker results: best deals within a budget, paged.
 
     Args:
         budget_from: Lower price bound, rubles.
         budget_to: Upper price bound, rubles.
         brand: Brand (lowercase) or None for any.
         model: Model (lowercase) or None for any.
+        n: Page size; cfg.bot_top_n when None.
+        offset: Skip this many results — lets the Mini App "show more" button
+            load further pages instead of always the same top cars.
 
     Returns:
-        Top cfg.bot_top_n rows sorted by score.
+        A page of the score-ranked frame.
     """
     df = load_market()
     mask = (
@@ -177,7 +182,9 @@ def pick_cars(
         mask &= df["brand"] == brand
     if model:
         mask &= df["model"] == model
-    return df[mask].nlargest(cfg.bot_top_n, "score")
+    ranked = df[mask].sort_values("score", ascending=False)
+    n = n or cfg.bot_top_n
+    return ranked.iloc[offset : offset + n]
 
 
 def popular_brands(limit: int = 8) -> list[str]:
@@ -185,23 +192,32 @@ def popular_brands(limit: int = 8) -> list[str]:
     return load_market()["brand"].value_counts().head(limit).index.tolist()
 
 
-def models_for_brand(brand: str, limit: int = 14) -> list[str]:
-    """Most-listed models (lowercase) of a brand, for the picker chips.
+def all_brands() -> list[str]:
+    """Every brand in the market (lowercase), alphabetical — for the picker.
+
+    Returns:
+        All distinct brand slugs so the Mini App can search the full catalog,
+        not just the most-listed few.
+    """
+    return sorted(load_market()["brand"].dropna().unique().tolist())
+
+
+def models_for_brand(brand: str, limit: int | None = None) -> list[str]:
+    """Models (lowercase) of a brand for the picker.
 
     Args:
         brand: Brand slug (lowercase).
-        limit: Max number of models to return.
+        limit: Max models, ordered by listing count; when None, returns every
+            model of the brand, alphabetical (so the picker covers the catalog).
 
     Returns:
-        Model names ordered by how many listings each has.
+        Model names — popularity-ranked when limited, else alphabetical.
     """
-    df = load_market()
-    return (
-        df[df["brand"] == brand]["model"]
-        .value_counts()
-        .head(limit)
-        .index.tolist()
-    )
+    models = load_market()
+    series = models[models["brand"] == brand]["model"]
+    if limit is None:
+        return sorted(series.dropna().unique().tolist())
+    return series.value_counts().head(limit).index.tolist()
 
 
 def evaluate_url(url: str) -> pd.Series | None:
