@@ -5,7 +5,7 @@
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Pydantic](https://img.shields.io/badge/Validation-Pydantic%20v2-e92063)
 ![Docker](https://img.shields.io/badge/Deploy-Docker%20Compose-2496ED?logo=docker&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-119%20passed-brightgreen)
 
 Система предиктивной аналитики для поиска **арбитражных сделок** на рынке подержанных автомобилей: собирает **реальные объявления с auto.ru**, рассчитывает справедливую рыночную цену каждого авто через ML и выделяет объявления с необоснованно заниженной ценой — кандидатов на выгодную перепродажу. Каждая найденная сделка ведёт на настоящую страницу объявления.
 
@@ -92,20 +92,24 @@ Auto.ru рендерит карточки на сервере, поэтому х
 
 ## Метрики модели
 
-На реальных данных auto.ru (~1255 объявлений, вся Россия, 87+ городов):
+На реальных данных auto.ru (~10 900 объявлений, вся Россия, 780+ городов):
 
 | Метрика | Значение |
 |---------|----------|
-| MAPE | ~40% (падает по мере накопления данных шедулером) |
-| RMSE | ~2 100 000 ₽ (рынок от 35 тыс. до 50 млн ₽) |
+| MAPE | ~14.6% (улучшена с 40% по мере накопления данных и тюнинга) |
+| RMSE | ~1 200 000 ₽ (рынок от 35 тыс. до 50 млн ₽) |
+| Размер обучения | 8057 train / 2015 val |
 | Топ-признаки | `engine_volume`, `horse_power`, `body_type` |
+
+Динамика MAPE: 40.3% (база, таргет в рублях) → 27.2% (лог-таргет) →
+24.4% (5-fold CV + тюнинг) → **~14.6%** (рост датасета + по-сегментная калибровка по пробегу).
 
 Страница **📊 Аналитика модели** показывает residuals, MAPE по маркам и scatter «предсказание vs факт».
 
 ## Тесты и качество
 
 ```bash
-pytest tests/ -v        # 51 тест: схемы, парсеры (вкл. auto.ru), препроцессинг, скоринг, storage
+pytest tests/ -v        # 119 тестов: схемы, парсеры (вкл. auto.ru), препроцессинг, скоринг, storage
 ruff check .            # линтер (конфиг в ruff.toml)
 ```
 
@@ -123,7 +127,7 @@ CI (GitHub Actions): lint → тесты → smoke скрапера → smoke о
 ├── processing/     # DataPreprocessor: dedup, выбросы, feature engineering
 ├── model/          # обучение CatBoost, инференс, скоринг, SHAP, метрики
 ├── app/            # Streamlit: главная + pages/ (Поиск сделок, Аналитика модели)
-├── tests/          # 51 тест + фикстуры (вкл. реальный HTML auto.ru)
+├── tests/          # 119 тестов + фикстуры (вкл. реальный HTML auto.ru)
 ├── config.py       # единый источник настроек (+ env overrides)
 ├── Dockerfile      # python:3.11-slim, non-root, healthcheck
 └── docker-compose.yml  # init (seed+train) → dashboard + scheduler

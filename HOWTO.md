@@ -98,7 +98,7 @@ docker compose up
 ## Проверить что всё работает
 
 ```bash
-# Тесты (52 теста)
+# Тесты (119 тестов)
 python3 -m pytest tests/ -v
 
 # Линтер
