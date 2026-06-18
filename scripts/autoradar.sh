@@ -33,6 +33,10 @@ else
 fi
 WEBAPP_PORT="${WEBAPP_PORT:-8050}"
 
+# Tailscale CLI (GUI app bundle first, then PATH)
+TS_CLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+[ -x "$TS_CLI" ] || TS_CLI="$(command -v tailscale)"
+
 # --- child PIDs we manage --------------------------------------------------
 WEBAPP_PID=""; BOT_PID=""
 
@@ -44,15 +48,45 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+# --- prerequisites: bring up Docker Desktop & Tailscale, then wait ----------
+# launchd starts us at login before these background apps are ready, so we
+# launch and wait for each one instead of assuming it is already running.
+
+ensure_docker() {
+  command -v docker >/dev/null 2>&1 || { log "WARN: docker not installed — skipping"; return 1; }
+  if docker info >/dev/null 2>&1; then return 0; fi
+  log "Docker daemon down — launching Docker Desktop…"
+  open -a Docker >/dev/null 2>&1 || true
+  for i in $(seq 1 60); do
+    docker info >/dev/null 2>&1 && { log "Docker ready (after $((i*2))s)"; return 0; }
+    sleep 2
+  done
+  log "WARN: Docker did not become ready in ~120s"; return 1
+}
+
+ensure_tailscale() {
+  [ -n "$TS_CLI" ] && [ -x "$TS_CLI" ] || { log "WARN: tailscale CLI not found — skipping"; return 1; }
+  if "$TS_CLI" status >/dev/null 2>&1; then return 0; fi   # already connected
+  log "Tailscale stopped — launching app & connecting…"
+  open -a Tailscale >/dev/null 2>&1 || true
+  sleep 3
+  "$TS_CLI" up >/dev/null 2>&1 || true
+  for i in $(seq 1 30); do
+    "$TS_CLI" status >/dev/null 2>&1 && { log "Tailscale connected (after $((i*2))s)"; return 0; }
+    sleep 2
+  done
+  log "WARN: Tailscale did not connect in ~60s (Funnel will be retried anyway)"; return 1
+}
+
 # --- 1. dashboard + scheduler (docker) -------------------------------------
 # Backgrounded: the `init` service (first scrape+train) can take minutes, and
 # the Mini App / bot read the DB + model straight off disk, so they must not
 # wait on docker.
-if command -v docker >/dev/null 2>&1; then
+if ensure_docker; then
   log "Starting docker compose (dashboard + scheduler) in background…"
   ( docker compose up -d >>"$LOG" 2>&1 || log "WARN: docker compose up failed" ) &
 else
-  log "WARN: docker not found — skipping dashboard/scheduler"
+  log "WARN: Docker unavailable — skipping dashboard/scheduler"
 fi
 
 # --- 2. Mini App API, supervised in the background -------------------------
@@ -73,14 +107,12 @@ sleep 5
 # Funnel gives a fixed *.ts.net HTTPS URL (in WEBAPP_URL) that never changes,
 # and tailscaled keeps it up across reboots. We just (idempotently) re-assert
 # it on start; the URL is static, so the bot is launched once.
-TS_CLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-[ -x "$TS_CLI" ] || TS_CLI="$(command -v tailscale)"
-
 if [ -z "${WEBAPP_URL:-}" ]; then
   log "FATAL: WEBAPP_URL not set in .env"; exit 1
 fi
 echo "$WEBAPP_URL" >"$URL_FILE"
 
+ensure_tailscale
 if [ -n "$TS_CLI" ] && [ -x "$TS_CLI" ]; then
   log "Asserting Tailscale Funnel → :$WEBAPP_PORT"
   "$TS_CLI" funnel --bg "$WEBAPP_PORT" >>"$LOG" 2>&1 \
