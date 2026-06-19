@@ -123,8 +123,37 @@ fi
 
 # --- 4. Telegram bot, supervised (fixed URL) -------------------------------
 log "Starting bot.main with WEBAPP_URL=$WEBAPP_URL"
-while true; do
-  WEBAPP_URL="$WEBAPP_URL" "$PY" -m bot.main >>"$STATE_DIR/bot.log" 2>&1
-  log "bot.main exited — restarting in 3s"
-  sleep 3
-done
+start_bot() {
+  while true; do
+    WEBAPP_URL="$WEBAPP_URL" "$PY" -m bot.main >>"$STATE_DIR/bot.log" 2>&1
+    log "bot.main exited — restarting in 3s"
+    sleep 3
+  done
+}
+start_bot & BOT_PID=$!
+
+# --- 5. Tailscale relay watchdog --------------------------------------------
+# This ISP occasionally intercepts the specific DERP relay tailscaled picked
+# (self-signed cert instead of the real one), which breaks Funnel's inbound
+# NAT traversal until tailscaled is restarted and picks a different relay.
+# Detect that health condition and self-heal automatically. (Separate issue
+# from the ISP blocking *.ts.net by SNI outright — that one needs Funnel
+# traffic to route over the private tailnet instead, e.g. via Tailscale on
+# the client device; restarting tailscaled here can't fix that case.)
+watch_tailscale_health() {
+  [ -n "$TS_CLI" ] && [ -x "$TS_CLI" ] || return 0
+  while true; do
+    sleep 120
+    if "$TS_CLI" status 2>&1 | grep -qi "intercepted connection"; then
+      log "Tailscale relay intercepted by ISP — restarting to pick a clean relay…"
+      "$TS_CLI" down >>"$LOG" 2>&1
+      sleep 3
+      "$TS_CLI" up >>"$LOG" 2>&1
+      sleep 3
+      "$TS_CLI" funnel --bg "$WEBAPP_PORT" >>"$LOG" 2>&1
+    fi
+  done
+}
+watch_tailscale_health &
+
+wait
