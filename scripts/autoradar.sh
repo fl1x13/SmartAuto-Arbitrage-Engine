@@ -173,21 +173,29 @@ stop_fallback_tunnels() {
   pkill -f "ssh.*localhost.run" 2>/dev/null
 }
 
-# Tries, in order: the primary Tailscale Funnel URL, then localhost.run. Prints
-# the first one that actually answers with HTTP 200 *and serves our app* (not a
-# provider login/interstitial page), or nothing if all are blocked/down.
-# (serveo.net used to be a no-account fallback but now forces sign-in, so it is
-# intentionally not in the chain — it would only show a login page.)
+# Prints the first public URL that actually serves *our* Mini App (not just any
+# HTTP 200 — some providers answer 200 with a login/interstitial), or nothing if
+# all are down.
+#
+# localhost.run is tried FIRST: with the registered key its subdomain is
+# permanent, so it gives one stable URL that doesn't flip-flop. Tailscale Funnel
+# is only an emergency fallback — its *.ts.net is currently blocked by the ISP
+# and its availability is flaky, so preferring it would churn the bot's Mini App
+# button every time it came and went. (serveo.net is intentionally not in the
+# chain — it now forces sign-in and would only serve a login page.)
 pick_working_url() {
+  local lhr; lhr=$(start_localhost_run)
+  if health_ok "$lhr"; then
+    echo "$lhr"
+    return 0
+  fi
+  log "localhost.run unreachable — falling back to Tailscale Funnel…"
   assert_tailscale_funnel
   if health_ok "$PRIMARY_URL"; then
     stop_fallback_tunnels
     echo "$PRIMARY_URL"
     return 0
   fi
-  log "Primary URL ($PRIMARY_URL) unreachable — trying localhost.run…"
-  local lhr; lhr=$(start_localhost_run)
-  if health_ok "$lhr"; then echo "$lhr"; return 0; fi
   return 1
 }
 
@@ -239,11 +247,17 @@ watch_url_health() {
       log "WARN: still no public tunnel reachable — keeping $cur, will retry"
       continue
     fi
-    if [ "$new_url" != "$cur" ]; then
-      log "Switching public URL: $cur -> $new_url"
-    fi
     echo "$new_url" >"$URL_FILE"
-    [ -f "$BOT_PID_FILE" ] && kill "$(cat "$BOT_PID_FILE")" 2>/dev/null
+    if [ "$new_url" != "$cur" ]; then
+      # Only the URL actually changed — restart the bot so it re-points its Mini
+      # App button. With a registered localhost.run key the subdomain is stable,
+      # so a brief tunnel reconnect re-picks the *same* URL and the bot is left
+      # alone (no needless restart, no Telegram button churn).
+      log "Switching public URL: $cur -> $new_url"
+      [ -f "$BOT_PID_FILE" ] && kill "$(cat "$BOT_PID_FILE")" 2>/dev/null
+    else
+      log "Re-established tunnel at same URL ($new_url) — bot left running"
+    fi
   done
 }
 watch_url_health &
