@@ -117,6 +117,17 @@ class Config:
     # the cap, linear reward hands the top of the ranking to exactly the
     # listings we least want to surface.
     discount_reward_cap: float = 0.30
+    # Per-segment discount "noise allowance". Premium/luxury price dispersion
+    # is far wider than mass-market, so a given % below the model's estimate is
+    # mostly noise there — and a cheap premium car usually hides a costly reason
+    # (accident, grey import, looming repairs). This much discount is shaved off
+    # before it earns score or a hot grade, so premium must be dramatically
+    # cheaper (not merely 30% below) to reach the top deals. Segments absent
+    # here (mass, budget, china, other) get no haircut.
+    segment_discount_noise: dict = field(default_factory=lambda: {
+        "premium": 0.15,
+        "luxury": 0.20,
+    })
 
     # Liquidity: data-driven from market depth (see model.predict.market_liquidity),
     # scaled into liquidity_range; liquidity_map holds manual brand overrides.

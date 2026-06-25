@@ -60,13 +60,19 @@ class TestEnrichment:
         assert expected <= set(enriched.columns)
 
     def test_vectorized_score_matches_formula(self, enriched):
-        from model.predict import market_liquidity, mileage_penalty_share
+        from model.predict import (
+            market_liquidity,
+            mileage_penalty_share,
+            segment_discount_haircut,
+        )
 
         row = enriched.iloc[0]
         liquidity = market_liquidity(enriched).iloc[0]
         discount = (row["predicted_price"] - row["price"]) / row["predicted_price"]
+        haircut = segment_discount_haircut(enriched).iloc[0]
+        eff_discount = max(discount - haircut, 0.0)
         expected = (
-            cfg.w1 * min(discount, cfg.discount_reward_cap)
+            cfg.w1 * min(eff_discount, cfg.discount_reward_cap)
             + cfg.w2 * liquidity
             - cfg.w4 * mileage_penalty_share(enriched).iloc[0]
             - cfg.w5 * float(row["is_suspicious"])
@@ -160,6 +166,45 @@ class TestDiscountRewardCap:
         rescored = rescore(twin)
         # Beyond the cap the extra discount earns nothing, so scores match.
         assert rescored.loc[0, "score"] == pytest.approx(rescored.loc[1, "score"])
+
+
+class TestSegmentDiscountHaircut:
+    def test_premium_and_luxury_get_haircut_mass_does_not(self):
+        from model.predict import segment_discount_haircut
+
+        df = pd.DataFrame(
+            {"brand_segment": ["premium", "mass", "luxury", "budget"]}
+        )
+        haircut = segment_discount_haircut(df)
+        assert haircut.iloc[0] == cfg.segment_discount_noise["premium"]
+        assert haircut.iloc[1] == 0.0
+        assert haircut.iloc[2] == cfg.segment_discount_noise["luxury"]
+        assert haircut.iloc[3] == 0.0
+
+    def test_missing_segment_column_is_safe(self):
+        from model.predict import segment_discount_haircut
+
+        haircut = segment_discount_haircut(pd.DataFrame({"price": [1, 2]}))
+        assert (haircut == 0.0).all()
+
+    def test_premium_scores_below_mass_at_same_discount(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        twin["is_suspicious"] = False
+        twin["mileage"] = 50_000  # equal mileage penalty
+        pred = int(twin.loc[0, "predicted_price"])
+        twin["price"] = int(pred * 0.70)  # 30% discount for both rows
+        # Same brand (so liquidity matches); only the segment differs.
+        twin.loc[0, "brand_segment"] = "mass"
+        twin.loc[1, "brand_segment"] = "premium"
+        rescored = rescore(twin)
+        assert rescored.loc[1, "score"] < rescored.loc[0, "score"]
 
 
 class TestMileagePenalty:

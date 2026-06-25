@@ -110,6 +110,27 @@ def mileage_penalty_share(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def segment_discount_haircut(df: pd.DataFrame) -> pd.Series:
+    """Discount noise allowance per listing, by market segment.
+
+    Premium and luxury cars have far wider price dispersion than mass-market
+    ones, so a 30% gap below the model's estimate is mostly noise there — and
+    a cheap premium car usually hides a costly reason (accident, grey import,
+    looming repairs). Shaving ``cfg.segment_discount_noise`` off the discount
+    before it earns score or a hot grade keeps premium out of the top deals
+    unless it is dramatically — not merely moderately — underpriced.
+
+    Args:
+        df: DataFrame with a brand_segment column (0 allowance when absent).
+
+    Returns:
+        Float Series aligned with df.index.
+    """
+    if "brand_segment" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+    return df["brand_segment"].map(cfg.segment_discount_noise).fillna(0.0)
+
+
 def market_liquidity(df: pd.DataFrame) -> pd.Series:
     """Per-listing liquidity coefficient within ``cfg.liquidity_range``.
 
@@ -235,10 +256,14 @@ def _grade_deals(
     of the score is a constant offset per brand, so a score threshold would
     mark even overpriced cars of liquid brands as good deals.
     """
+    # Grade on the discount net of the segment noise allowance, so a premium
+    # car merely 30% below market is graded "good", not "hot" — the same
+    # haircut the score applies, kept consistent with what the user is shown.
+    eff_discount = df["discount_pct"] - segment_discount_haircut(df) * 100
     conditions = [
         df["is_suspicious"],
-        (df["discount_pct"] >= hot_threshold) & (df["confidence"] != "low"),
-        df["discount_pct"] >= good_threshold,
+        (eff_discount >= hot_threshold) & (df["confidence"] != "low"),
+        eff_discount >= good_threshold,
     ]
     choices = ["⚠️ Подозрительная", "🔥 Горячая", "👍 Хорошая"]
     return pd.Series(
@@ -288,8 +313,9 @@ def rescore(
         if "price_drop_pct" in df.columns
         else 0.0
     )
+    eff_discount = (discount - segment_discount_haircut(df)).clip(lower=0)
     df["score"] = (
-        w1 * discount.clip(upper=cfg.discount_reward_cap)
+        w1 * eff_discount.clip(upper=cfg.discount_reward_cap)
         + w2 * liquidity
         + w3 * drop_share
         - w4 * mileage_penalty_share(df)
@@ -434,12 +460,15 @@ def enrich_with_predictions(
     df["is_suspicious"] = df["suspicious_reason"] != ""
 
     # Vectorized arbitrage score:
-    # w1·min(discount, cap) + w2·liquidity − w4·mileage_penalty
-    # − w5·suspicious (+ w3·drop below). The discount reward is capped so a
-    # 90% gap (almost always a scam) cannot outrank an honest 25% deal.
+    # w1·min(eff_discount, cap) + w2·liquidity − w4·mileage_penalty
+    # − w5·suspicious (+ w3·drop below). The reward is capped so a 90% gap
+    # (almost always a scam) cannot outrank an honest 25% deal, and a
+    # per-segment haircut keeps premium out of the top unless it is
+    # dramatically underpriced.
     liquidity = market_liquidity(df)
+    eff_discount = (discount - segment_discount_haircut(df)).clip(lower=0)
     df["score"] = (
-        cfg.w1 * discount.clip(upper=cfg.discount_reward_cap)
+        cfg.w1 * eff_discount.clip(upper=cfg.discount_reward_cap)
         + cfg.w2 * liquidity
         - cfg.w4 * mileage_penalty_share(df)
         - cfg.w5 * df["is_suspicious"].astype(float)

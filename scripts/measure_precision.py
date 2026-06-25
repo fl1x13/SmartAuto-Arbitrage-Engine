@@ -130,24 +130,52 @@ TEMPLATE_COLS = [
 ]
 
 
+def _existing_labels() -> pd.DataFrame:
+    """Read prior labels.csv as ad_id+label, tolerant of Excel's quirks.
+
+    Returns an empty frame when there is nothing usable to carry over.
+    """
+    if not LABELS_PATH.exists():
+        return pd.DataFrame(columns=["ad_id", "label"])
+    prev = pd.read_csv(
+        LABELS_PATH,
+        sep=None,
+        engine="python",
+        encoding="utf-8-sig",
+        dtype={"ad_id": "Int64"},
+    )
+    if "ad_id" not in prev.columns or "label" not in prev.columns:
+        return pd.DataFrame(columns=["ad_id", "label"])
+    prev = prev.dropna(subset=["ad_id"])
+    prev["ad_id"] = prev["ad_id"].astype("int64")
+    return prev[["ad_id", "label"]]
+
+
 def write_label_template(top: pd.DataFrame) -> None:
-    """Seed labels.csv with the current top-N deals and an empty label column.
+    """Seed labels.csv with the current top-N deals, preserving prior labels.
 
     Each row carries brand/model/year/price and the auto.ru link, so the deals
     can be judged and opened directly from the spreadsheet — no digging through
     the bot. The ranking shifts as the market refreshes and as the scoring
-    evolves, so the label set is re-seeded; existing labels for ad_ids that
-    resurface still match on join, so labelling effort accumulates, not resets.
+    evolves, so the set is re-seeded on each run; labels already given for an
+    ad_id that is still in the top are carried over, so labelling effort
+    accumulates rather than resetting — only the new entrants need judging.
     """
     cols = [c for c in TEMPLATE_COLS if c in top.columns]
     template = top[cols].copy()
-    template["label"] = ""  # fill with good / trash / scam
+    prior = _existing_labels()
+    template = template.merge(prior, on="ad_id", how="left")
+    template["label"] = template["label"].fillna("")  # fill with good/trash/scam
     template.to_csv(LABELS_PATH, index=False)
+
+    carried = int((template["label"].astype(str).str.strip() != "").sum())
     print(
         f"Wrote {len(template)} deals to {LABELS_PATH.name} "
         f"(columns: {', '.join(cols)}, label).\n"
-        "Open it, judge each ad via its url, fill label with "
-        "good / trash / scam, then re-run without --init-labels."
+        f"Carried over {carried} existing labels; "
+        f"{len(template) - carried} new rows need a label.\n"
+        "Open it, judge the blank rows via their url with good / trash / "
+        "scam / norm, then re-run without --init-labels."
     )
 
 
