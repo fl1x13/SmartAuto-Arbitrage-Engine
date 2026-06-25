@@ -25,7 +25,11 @@ from scraper.storage import get_price_dynamics
 TOP_N = 20
 LABELS_PATH = BASE_DIR / "labels.csv"
 GOOD_LABELS = {"good"}
-BAD_LABELS = {"trash", "scam"}
+# Non-good but still "checked, not a deal" — counts against precision.
+# norm/market = market-priced (the 🔥 grade oversold it); trash = worthless or
+# fake discount; scam = fraud/hidden problem.
+NONGOOD_LABELS = {"trash", "scam", "norm", "market"}
+RECOGNIZED_LABELS = GOOD_LABELS | NONGOOD_LABELS
 TARGET_PRECISION = 0.75
 
 # Columns shown in the top-N table (in display order).
@@ -68,9 +72,22 @@ def report_precision(top: pd.DataFrame) -> None:
         )
         return
 
-    labels = pd.read_csv(LABELS_PATH, dtype={"ad_id": "Int64"})
+    # sep=None lets the csv sniffer accept both comma and the semicolon that
+    # Excel writes under a Russian locale; utf-8-sig strips the BOM Excel
+    # prepends (which would otherwise rename the first column to "﻿ad_id").
+    labels = pd.read_csv(
+        LABELS_PATH,
+        sep=None,
+        engine="python",
+        encoding="utf-8-sig",
+        dtype={"ad_id": "Int64"},
+    )
     labels["label"] = labels["label"].astype(str).str.strip().str.lower()
-    labels = labels[labels["label"].isin(GOOD_LABELS | BAD_LABELS)]
+    unknown = sorted(
+        set(labels.loc[labels["label"] != "", "label"]) - RECOGNIZED_LABELS
+        - {"nan"}
+    )
+    labels = labels[labels["label"].isin(RECOGNIZED_LABELS)]
 
     labelled = top.merge(labels[["ad_id", "label"]], on="ad_id", how="inner")
     n_labelled = len(labelled)
@@ -82,18 +99,18 @@ def report_precision(top: pd.DataFrame) -> None:
         return
 
     n_good = int(labelled["label"].isin(GOOD_LABELS).sum())
-    n_trash = int((labelled["label"] == "trash").sum())
-    n_scam = int((labelled["label"] == "scam").sum())
     precision = n_good / n_labelled
 
     print("\n=== precision@%d ===" % len(top))
     print(f"labelled:  {n_labelled} / {len(top)}")
-    print(f"good:      {n_good}")
-    print(f"trash:     {n_trash}")
-    print(f"scam:      {n_scam}")
+    for label, n in labelled["label"].value_counts().items():
+        print(f"  {label:<8} {n}")
+    if unknown:
+        print(f"(ignored unrecognised labels: {', '.join(unknown)})")
     status = "✅ on target" if precision >= TARGET_PRECISION else "❌ below target"
     print(
-        f"precision: {precision:.0%}  "
+        f"precision@{len(top)} = good / labelled = "
+        f"{n_good}/{n_labelled} = {precision:.0%}  "
         f"(target {TARGET_PRECISION:.0%}) — {status}"
     )
 
