@@ -23,6 +23,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from bot import feedback as feedback_mod
 from bot import service
 from config import cfg
 
@@ -91,6 +92,23 @@ def _check_auth(init_data: str | None) -> None:
         return
     if not init_data or not validate_init_data(init_data, cfg.telegram_token):
         raise HTTPException(status_code=401, detail="invalid Telegram initData")
+
+
+def _user_id(init_data: str | None) -> int:
+    """Best-effort Telegram user id from initData; 0 when absent/unparseable.
+
+    Used only to scope a user's own vote (one vote per ad per user) — auth is
+    enforced separately by :func:`_check_auth`.
+    """
+    if not init_data:
+        return 0
+    try:
+        import json
+
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        return int(json.loads(pairs.get("user", "{}")).get("id", 0))
+    except (ValueError, KeyError, TypeError):
+        return 0
 
 
 def _row_to_json(row: pd.Series) -> dict:
@@ -194,6 +212,37 @@ async def api_explain(
     if report is None:
         raise HTTPException(status_code=404, detail="Объявление не найдено")
     return report
+
+
+@app.get("/api/feedback")
+async def api_feedback_get(
+    ad_id: int,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    """Current vote tally for an ad plus the caller's own verdict."""
+    _check_auth(x_telegram_init_data)
+    chat_id = _user_id(x_telegram_init_data)
+    return await asyncio.to_thread(service.feedback_for_ad, ad_id, chat_id)
+
+
+@app.post("/api/feedback")
+async def api_feedback_post(
+    ad_id: int,
+    verdict: str,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    """Record «верный/неверный прогноз» on a deal and return the new tally.
+
+    A 'bad' verdict nudges this segment's fair price down on the next market
+    refresh, so a deal users keep flagging stops dominating the ranking.
+    """
+    _check_auth(x_telegram_init_data)
+    if verdict not in feedback_mod.VERDICTS:
+        raise HTTPException(status_code=400, detail="verdict must be good|bad")
+    chat_id = _user_id(x_telegram_init_data)
+    return await asyncio.to_thread(
+        service.record_prediction_feedback, ad_id, verdict, chat_id
+    )
 
 
 @app.get("/api/reliability")

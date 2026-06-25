@@ -192,6 +192,34 @@
   .rel-list li{margin-bottom:4px;}
   .rel-foot{margin-top:14px;font-size:11.5px;color:var(--muted);}
 
+  /* "Оценить прогноз" — feedback that calibrates the model */
+  .feedback{margin-top:18px;border:1px solid var(--line);border-radius:16px;
+    background:var(--surface);overflow:hidden;}
+  .fb-toggle{display:flex;width:100%;align-items:center;justify-content:space-between;
+    gap:10px;padding:15px 16px;background:transparent;border:0;color:var(--text);
+    font-size:14.5px;font-weight:700;cursor:pointer;}
+  .fb-toggle:active{filter:brightness(.96);}
+  .fb-chev{color:var(--muted);font-size:13px;transition:transform .25s;}
+  .feedback.open .fb-chev{transform:rotate(180deg);}
+  .fb-panel{max-height:0;opacity:0;overflow:hidden;
+    transition:max-height .32s ease,opacity .25s ease;}
+  .feedback.open .fb-panel{max-height:340px;opacity:1;}
+  .fb-inner{padding:0 16px 16px;}
+  .fb-q{font-size:13.5px;line-height:1.4;margin-bottom:12px;}
+  .fb-actions{display:flex;gap:10px;}
+  .fb-btn{flex:1;padding:13px;border-radius:13px;border:1px solid var(--line);
+    background:var(--surface-2);color:var(--text);font-size:14px;font-weight:700;
+    cursor:pointer;transition:transform .12s,background .15s,border-color .15s,color .15s;}
+  .fb-btn:active{transform:scale(.97);}
+  .fb-btn.good.sel{background:color-mix(in srgb,var(--green) 22%,transparent);
+    border-color:var(--green);color:var(--green);}
+  .fb-btn.bad.sel{background:color-mix(in srgb,var(--red) 22%,transparent);
+    border-color:var(--red);color:var(--red);}
+  .fb-note{font-size:11.5px;color:var(--muted);line-height:1.45;margin-top:12px;}
+  .fb-tally{font-size:12.5px;color:var(--muted);margin-top:11px;font-weight:600;
+    min-height:16px;}
+  .fb-tally b.g{color:var(--green);} .fb-tally b.b{color:var(--red);}
+
   .cmp{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--surface);
     border:1px solid var(--line);border-radius:14px;margin-bottom:10px;cursor:pointer;transition:transform .12s;}
   .cmp:active{transform:scale(.99);}
@@ -302,11 +330,12 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
 const titleCase = (s) => String(s).replace(/(^|\s)\S/g, (t) => t.toUpperCase());
 const inlineReports = {};
 
-async function api(path, params = {}) {
+async function api(path, params = {}, method = "GET") {
   const qs = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== null && v !== "" && v !== undefined)
   );
   const resp = await fetch(`/api/${path}?${qs}`, {
+    method,
     headers: tg && tg.initData ? { "X-Telegram-Init-Data": tg.initData } : {},
   });
   if (!resp.ok) {
@@ -480,8 +509,26 @@ function renderReport(r) {
     ${cmpHTML}
     <button class="btn ghost" id="reliability-btn" data-adid="${r.ad_id || ""}" style="margin-top:18px">🔧 Проверить надёжность</button>
     <div id="reliability-box"></div>
+    ${r.ad_id ? `
+    <div class="feedback" id="feedback-block" data-adid="${r.ad_id}">
+      <button class="fb-toggle" id="fb-toggle">
+        <span>🎯 Оценить прогноз</span><span class="fb-chev">⌄</span>
+      </button>
+      <div class="fb-panel">
+        <div class="fb-inner">
+          <div class="fb-q">Модель верно определила, что это выгодная сделка?</div>
+          <div class="fb-actions">
+            <button class="fb-btn good" data-v="good">👍 Верный</button>
+            <button class="fb-btn bad" data-v="bad">👎 Неверный</button>
+          </div>
+          <div class="fb-note">Ваша оценка обучает модель: за неверные прогнозы справедливая цена в этом сегменте корректируется, и переоценённые «выгодные» сделки уходят ниже в выдаче.</div>
+          <div class="fb-tally" id="fb-tally"></div>
+        </div>
+      </div>
+    </div>` : ""}
     <button class="btn" id="detail-open" style="margin-top:12px">Открыть объявление на auto.ru</button>
   `;
+  setupFeedback(r.ad_id);
   const relBtn = document.getElementById("reliability-btn");
   if (relBtn && relBtn.dataset.adid) {
     relBtn.addEventListener("click", () => loadReliability(+relBtn.dataset.adid));
@@ -493,6 +540,53 @@ function renderReport(r) {
   document.getElementById("detail-open").addEventListener("click", () => {
     haptic("medium"); openLink(r.url);
   });
+}
+
+/* ---------- forecast feedback (calibrates the model) ---------- */
+function renderTally(t) {
+  const tally = document.getElementById("fb-tally");
+  if (!tally) return;
+  const counts = `Оценок: <b class="g">👍 ${t.good || 0}</b> · <b class="b">👎 ${t.bad || 0}</b>`;
+  tally.innerHTML = t.mine
+    ? `Спасибо — ваша оценка учтена. ${counts}`
+    : (t.good || t.bad) ? counts : "";
+  document.querySelectorAll(".fb-btn").forEach((b) =>
+    b.classList.toggle("sel", b.dataset.v === t.mine));
+}
+
+function setupFeedback(adId) {
+  const block = document.getElementById("feedback-block");
+  if (!block || !adId) return;
+  const toggle = document.getElementById("fb-toggle");
+  let loaded = false;
+
+  toggle.addEventListener("click", async () => {
+    haptic();
+    const opening = !block.classList.contains("open");
+    block.classList.toggle("open", opening);
+    if (opening && !loaded) {
+      loaded = true;
+      try { renderTally(await api("feedback", { ad_id: adId })); }
+      catch { /* tally is best-effort */ }
+    }
+  });
+
+  block.querySelectorAll(".fb-btn").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      haptic("medium");
+      block.querySelectorAll(".fb-btn").forEach((b) => (b.disabled = true));
+      try {
+        const t = await api("feedback", { ad_id: adId, verdict: btn.dataset.v }, "POST");
+        renderTally(t);
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      } catch (e) {
+        const tally = document.getElementById("fb-tally");
+        if (tally) tally.textContent = "Не удалось сохранить оценку — попробуйте ещё раз.";
+      } finally {
+        block.querySelectorAll(".fb-btn").forEach((b) => (b.disabled = false));
+      }
+    })
+  );
 }
 
 async function loadReliability(adId) {

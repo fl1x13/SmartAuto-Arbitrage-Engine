@@ -370,10 +370,28 @@ def explain_prediction(
     return contributions, base_value, "₽"
 
 
+def _apply_corrections(
+    df: pd.DataFrame, corrections: dict[tuple[str, str], float] | None
+) -> "pd.Series":
+    """Scale ``predicted_price`` by per-(brand, model) feedback factors.
+
+    No-op (returns the column unchanged) when there are no corrections.
+    """
+    if not corrections:
+        return df["predicted_price"]
+    factors = [
+        corrections.get((str(b).lower(), str(m).lower()), 1.0)
+        for b, m in zip(df["brand"], df["model"])
+    ]
+    scaled = df["predicted_price"] * pd.Series(factors, index=df.index)
+    return scaled.round().astype(int)
+
+
 def enrich_with_predictions(
     df: pd.DataFrame,
     model: CatBoostRegressor | None = None,
     price_dynamics: pd.DataFrame | None = None,
+    corrections: dict[tuple[str, str], float] | None = None,
 ) -> pd.DataFrame:
     """Add prediction and deal-analysis columns to the DataFrame.
 
@@ -388,6 +406,10 @@ def enrich_with_predictions(
             :func:`scraper.storage.get_price_dynamics`. When present, a
             price-drop bonus (w3 * drop share) is added to the score —
             a seller cutting the price is motivated to sell fast.
+        corrections: Optional per-(brand, model) fair-price multipliers learned
+            from user feedback (see :func:`bot.feedback.prediction_corrections`).
+            Applied to ``predicted_price`` before discount/score so a segment
+            users keep flagging as over-rated is demoted everywhere.
 
     Returns:
         DataFrame with analysis columns appended.
@@ -397,6 +419,7 @@ def enrich_with_predictions(
 
     df = df.copy()
     df["predicted_price"] = predict_price(df, model).astype(int)
+    df["predicted_price"] = _apply_corrections(df, corrections)
 
     # Vectorized arbitrage score:
     # w1·discount + w2·liquidity − w4·mileage_penalty (+ w3·drop below)

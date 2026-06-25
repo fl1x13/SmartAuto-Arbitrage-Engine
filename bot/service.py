@@ -12,6 +12,7 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine
 
+from bot import feedback
 from config import cfg
 from model.predict import (
     enrich_with_predictions,
@@ -68,7 +69,10 @@ def load_market(force: bool = False) -> pd.DataFrame:
     df = pd.read_sql("SELECT * FROM raw_ads", engine)
     df = DataPreprocessor().fit_transform(df)
     df = enrich_with_predictions(
-        df, load_model(), price_dynamics=get_price_dynamics(engine)
+        df,
+        load_model(),
+        price_dynamics=get_price_dynamics(engine),
+        corrections=feedback.prediction_corrections(),
     )
     _cache["df"] = df
     _cache["loaded_at"] = time.monotonic()
@@ -486,3 +490,31 @@ def reliability_for_ad(ad_id: int) -> dict | None:
     if rows.empty:
         return None
     return reliability_report(rows.iloc[0])
+
+
+def record_prediction_feedback(ad_id: int, verdict: str, chat_id: int = 0) -> dict:
+    """Save a user's verdict on a deal call, snapshotting the model's claim.
+
+    Looks the ad up in the market frame to attach the segment (brand/model) and
+    the prediction being judged, then returns the refreshed tally for the ad.
+    The next ``load_market`` refresh picks up the new calibration.
+    """
+    df = load_market()
+    rows = df[df["ad_id"] == ad_id]
+    snap = {}
+    if not rows.empty:
+        row = rows.iloc[0]
+        snap = {
+            "brand": str(row.get("brand", "")),
+            "model": str(row.get("model", "")),
+            "discount_pct": float(row.get("discount_pct", 0.0)),
+            "predicted_price": int(row.get("predicted_price", 0)),
+            "price": int(row.get("price", 0)),
+        }
+    feedback.record_feedback(ad_id, verdict, chat_id=chat_id, **snap)
+    return feedback.feedback_for_ad(ad_id, chat_id)
+
+
+def feedback_for_ad(ad_id: int, chat_id: int = 0) -> dict:
+    """Current vote tally for an ad plus this user's own verdict."""
+    return feedback.feedback_for_ad(ad_id, chat_id)
