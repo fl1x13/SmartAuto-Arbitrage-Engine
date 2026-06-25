@@ -60,12 +60,17 @@ class TestEnrichment:
         assert expected <= set(enriched.columns)
 
     def test_vectorized_score_matches_formula(self, enriched):
-        from model.predict import market_liquidity
+        from model.predict import market_liquidity, mileage_penalty_share
 
         row = enriched.iloc[0]
         liquidity = market_liquidity(enriched).iloc[0]
         discount = (row["predicted_price"] - row["price"]) / row["predicted_price"]
-        expected = cfg.w1 * discount + cfg.w2 * liquidity
+        expected = (
+            cfg.w1 * min(discount, cfg.discount_reward_cap)
+            + cfg.w2 * liquidity
+            - cfg.w4 * mileage_penalty_share(enriched).iloc[0]
+            - cfg.w5 * float(row["is_suspicious"])
+        )
         assert row["score"] == pytest.approx(expected)
 
     def test_confidence_labels_valid(self, enriched):
@@ -115,6 +120,46 @@ class TestMarketLiquidity:
 
         liq = market_liquidity(self._market())
         assert (liq[35:] == cfg.liquidity_map["toyota"]).all()
+
+
+class TestSuspiciousPenalty:
+    def test_suspicious_twin_scores_lower(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        twin.loc[0, "is_suspicious"] = False
+        twin.loc[1, "is_suspicious"] = True
+        rescored = rescore(twin)
+        assert rescored.loc[1, "score"] < rescored.loc[0, "score"]
+        assert rescored.loc[0, "score"] - rescored.loc[1, "score"] == pytest.approx(
+            cfg.w5
+        )
+
+
+class TestDiscountRewardCap:
+    def test_reward_saturates_above_cap(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        # Same car, same fair price; one priced for a 30% gap, one for 80%.
+        twin["is_suspicious"] = False
+        twin["mileage"] = 50_000  # equal mileage penalty for both
+        pred = int(twin.loc[0, "predicted_price"])
+        twin.loc[0, "price"] = int(pred * 0.50)  # 50% discount (above the cap)
+        twin.loc[1, "price"] = int(pred * 0.20)  # 80% discount (further above)
+        rescored = rescore(twin)
+        # Beyond the cap the extra discount earns nothing, so scores match.
+        assert rescored.loc[0, "score"] == pytest.approx(rescored.loc[1, "score"])
 
 
 class TestMileagePenalty:

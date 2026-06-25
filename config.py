@@ -105,10 +105,18 @@ class Config:
     w2: float = 0.2
     w3: float = 0.1  # price-drop signal (seller motivated to sell fast)
     w4: float = 0.15  # high-mileage penalty (worn cars are hard to resell)
+    w5: float = 0.5  # suspicious-listing penalty (scam/hidden-problem cars
+    # must sink below honest deals, not crown the ranking)
     # Penalty kicks in above this mileage and grows by w4 per scale step:
     # 300k km → -w4, 450k km → -2*w4
     mileage_penalty_start: int = 150_000
     mileage_penalty_scale: int = 150_000
+    # Discount reward saturates here: the deal value of a price gap rises up
+    # to ~30% below market, then flattens. A 90% "discount" is almost always
+    # a scam or a hidden-problem car, not 3x the deal of a 30% one — without
+    # the cap, linear reward hands the top of the ranking to exactly the
+    # listings we least want to surface.
+    discount_reward_cap: float = 0.30
 
     # Liquidity: data-driven from market depth (see model.predict.market_liquidity),
     # scaled into liquidity_range; liquidity_map holds manual brand overrides.
@@ -177,6 +185,11 @@ class Config:
     outlier_upper_q: float = 0.98
     mileage_lower_q: float = 0.0
     mileage_upper_q: float = 0.99
+    # Absolute price floor applied before group-quantile filtering. A rare
+    # brand+model with <10 ads skips quantile filtering entirely, so a
+    # 3 750 ₽ typo/scam on a 2024 car would otherwise reach the top deals.
+    # No running car sells below this — anything cheaper is parts/typo/fraud.
+    min_plausible_price: int = 30_000
 
     # Telegram bot
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

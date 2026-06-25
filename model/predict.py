@@ -289,10 +289,11 @@ def rescore(
         else 0.0
     )
     df["score"] = (
-        w1 * discount
+        w1 * discount.clip(upper=cfg.discount_reward_cap)
         + w2 * liquidity
         + w3 * drop_share
         - w4 * mileage_penalty_share(df)
+        - cfg.w5 * df["is_suspicious"].astype(float)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
     df["discount_pct"] = (discount * 100).round(1)
@@ -421,15 +422,27 @@ def enrich_with_predictions(
     df["predicted_price"] = predict_price(df, model).astype(int)
     df["predicted_price"] = _apply_corrections(df, corrections)
 
-    # Vectorized arbitrage score:
-    # w1·discount + w2·liquidity − w4·mileage_penalty (+ w3·drop below)
-    liquidity = market_liquidity(df)
     pred = df["predicted_price"].where(df["predicted_price"] > 0)
     discount = ((pred - df["price"]) / pred).fillna(0.0)
+    df["discount_pct"] = (discount * 100).round(1)
+    df["sample_count"] = df.groupby(["brand", "model"])["price"].transform("size")
+    df["confidence"] = _confidence_from_sample_count(df["sample_count"])
+    # Suspicion is computed before the score so it can demote the listing:
+    # scams and hidden-problem cars are flagged precisely because their price
+    # gap is too good to be true, and that gap must not also reward them.
+    df["suspicious_reason"] = flag_suspicious_listings(df)
+    df["is_suspicious"] = df["suspicious_reason"] != ""
+
+    # Vectorized arbitrage score:
+    # w1·min(discount, cap) + w2·liquidity − w4·mileage_penalty
+    # − w5·suspicious (+ w3·drop below). The discount reward is capped so a
+    # 90% gap (almost always a scam) cannot outrank an honest 25% deal.
+    liquidity = market_liquidity(df)
     df["score"] = (
-        cfg.w1 * discount
+        cfg.w1 * discount.clip(upper=cfg.discount_reward_cap)
         + cfg.w2 * liquidity
         - cfg.w4 * mileage_penalty_share(df)
+        - cfg.w5 * df["is_suspicious"].astype(float)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
 
@@ -446,10 +459,5 @@ def enrich_with_predictions(
         df["price_drop_pct"] = 0.0
         df["n_price_changes"] = 0
 
-    df["discount_pct"] = (discount * 100).round(1)
-    df["sample_count"] = df.groupby(["brand", "model"])["price"].transform("size")
-    df["confidence"] = _confidence_from_sample_count(df["sample_count"])
-    df["suspicious_reason"] = flag_suspicious_listings(df)
-    df["is_suspicious"] = df["suspicious_reason"] != ""
     df["deal_grade"] = _grade_deals(df)
     return df

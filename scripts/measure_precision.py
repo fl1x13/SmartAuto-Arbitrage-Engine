@@ -98,11 +98,30 @@ def report_precision(top: pd.DataFrame) -> None:
     )
 
 
+def write_label_template(top: pd.DataFrame) -> None:
+    """Seed labels.csv with the current top-N ad_ids and empty labels.
+
+    The ranking shifts as the market refreshes and as the scoring evolves, so
+    the label set has to be re-seeded; existing labels for ad_ids that resurface
+    still match on join, so labelling effort accumulates rather than resets.
+    """
+    template = pd.DataFrame({"ad_id": top["ad_id"], "label": ""})
+    template.to_csv(LABELS_PATH, index=False)
+    print(
+        f"Wrote {len(template)} ad_ids to {LABELS_PATH.name}. "
+        "Fill the label column with good / trash / scam and re-run."
+    )
+
+
 def main() -> int:
     top = load_top_deals()
     if top.empty:
         print("No medium/high-confidence listings found — is the DB populated?")
         return 1
+
+    if "--init-labels" in sys.argv[1:]:
+        write_label_template(top)
+        return 0
 
     report_precision(top)
 

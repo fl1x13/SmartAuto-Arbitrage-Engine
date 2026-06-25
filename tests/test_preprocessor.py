@@ -98,3 +98,34 @@ class TestOutlierFiltering:
         )
         result = preprocessor._filter_outliers(df)
         assert 50_000_000 not in result["price"].values
+
+
+class TestImplausiblePriceFilter:
+    def test_drops_price_below_floor(self, preprocessor):
+        """A rare model (group < 10) skips quantile filtering, so an absurd
+        price must be caught by the absolute floor instead."""
+        df = pd.DataFrame(
+            {
+                "ad_id": [1, 2, 3],
+                "brand": ["jaecoo"] * 3,
+                "model": ["j8"] * 3,
+                "price": [3_750, 2_800_000, 2_900_000],
+                "mileage": [34_000, 20_000, 25_000],
+            }
+        )
+        result = preprocessor._filter_implausible(df)
+        assert 3_750 not in result["price"].values
+        assert len(result) == 2
+
+    def test_keeps_cheap_but_plausible_car(self, preprocessor):
+        df = pd.DataFrame(
+            {
+                "ad_id": [1, 2],
+                "brand": ["vaz"] * 2,
+                "model": ["2107"] * 2,
+                "price": [45_000, 60_000],
+                "mileage": [120_000, 90_000],
+            }
+        )
+        result = preprocessor._filter_implausible(df)
+        assert len(result) == 2

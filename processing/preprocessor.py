@@ -45,9 +45,27 @@ class DataPreprocessor:
             Cleaned DataFrame with engineered features.
         """
         df = self._drop_duplicates(df)
+        df = self._filter_implausible(df)
         df = self._filter_outliers(df)
         df = self.engineer_features(df)
         logger.info("Preprocessing complete. Output shape: %s", df.shape)
+        return df
+
+    def _filter_implausible(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop physically impossible prices before group-quantile filtering.
+
+        Group-quantile filtering only runs for brand+model groups with ≥10
+        ads, so a rare model (e.g. a single Jaecoo J8) escapes it entirely —
+        a 3 750 ₽ typo/scam on a 2024 car would otherwise sail to the top of
+        the ranking. An absolute floor catches these regardless of group size.
+        """
+        if "price" not in df.columns:
+            return df
+        before = len(df)
+        df = df[df["price"] >= cfg.min_plausible_price]
+        removed = before - len(df)
+        if removed:
+            logger.info("Implausible-price filter: dropped %d rows", removed)
         return df
 
     def _drop_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
