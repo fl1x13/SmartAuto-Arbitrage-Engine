@@ -98,18 +98,39 @@ def report_precision(top: pd.DataFrame) -> None:
     )
 
 
-def write_label_template(top: pd.DataFrame) -> None:
-    """Seed labels.csv with the current top-N ad_ids and empty labels.
+# Context columns written into the label template so each row can be judged
+# (and its ad opened) straight from the spreadsheet. Only ad_id and the empty
+# label column are read back by report_precision; the rest is for the human.
+TEMPLATE_COLS = [
+    "ad_id",
+    "brand",
+    "model",
+    "year",
+    "mileage",
+    "price",
+    "discount_pct",
+    "url",
+]
 
-    The ranking shifts as the market refreshes and as the scoring evolves, so
-    the label set has to be re-seeded; existing labels for ad_ids that resurface
-    still match on join, so labelling effort accumulates rather than resets.
+
+def write_label_template(top: pd.DataFrame) -> None:
+    """Seed labels.csv with the current top-N deals and an empty label column.
+
+    Each row carries brand/model/year/price and the auto.ru link, so the deals
+    can be judged and opened directly from the spreadsheet — no digging through
+    the bot. The ranking shifts as the market refreshes and as the scoring
+    evolves, so the label set is re-seeded; existing labels for ad_ids that
+    resurface still match on join, so labelling effort accumulates, not resets.
     """
-    template = pd.DataFrame({"ad_id": top["ad_id"], "label": ""})
+    cols = [c for c in TEMPLATE_COLS if c in top.columns]
+    template = top[cols].copy()
+    template["label"] = ""  # fill with good / trash / scam
     template.to_csv(LABELS_PATH, index=False)
     print(
-        f"Wrote {len(template)} ad_ids to {LABELS_PATH.name}. "
-        "Fill the label column with good / trash / scam and re-run."
+        f"Wrote {len(template)} deals to {LABELS_PATH.name} "
+        f"(columns: {', '.join(cols)}, label).\n"
+        "Open it, judge each ad via its url, fill label with "
+        "good / trash / scam, then re-run without --init-labels."
     )
 
 
