@@ -101,3 +101,33 @@ class TestSoldFlag:
         save_ads([_make_ad(1)], engine)  # reappears in the feed → live again
         with Session(engine) as session:
             assert session.get(CarAd, 1).sold == 0
+
+
+class TestAutoruBadge:
+    def test_badge_persisted_on_insert(self, engine):
+        ad = _make_ad(1)
+        ad.autoru_badge, ad.autoru_discount_pct = "Ниже оценки на 10%", -10
+        save_ads([ad], engine)
+        with Session(engine) as session:
+            row = session.get(CarAd, 1)
+            assert row.autoru_badge == "Ниже оценки на 10%"
+            assert row.autoru_discount_pct == -10
+
+    def test_badge_refreshed_on_rescrape(self, engine):
+        ad = _make_ad(1)
+        ad.autoru_badge, ad.autoru_discount_pct = "Выше оценки на 5%", 5
+        save_ads([ad], engine)
+        ad2 = _make_ad(1)  # same ad, auto.ru re-rated it cheaper
+        ad2.autoru_badge, ad2.autoru_discount_pct = "Ниже оценки на 8%", -8
+        save_ads([ad2], engine)
+        with Session(engine) as session:
+            row = session.get(CarAd, 1)
+            assert row.autoru_badge == "Ниже оценки на 8%"
+            assert row.autoru_discount_pct == -8
+
+    def test_no_badge_stays_null(self, engine):
+        save_ads([_make_ad(1)], engine)
+        with Session(engine) as session:
+            row = session.get(CarAd, 1)
+            assert row.autoru_badge is None
+            assert row.autoru_discount_pct is None

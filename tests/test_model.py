@@ -168,6 +168,37 @@ class TestDiscountRewardCap:
         assert rescored.loc[0, "score"] == pytest.approx(rescored.loc[1, "score"])
 
 
+class TestAutoruBadgeSignal:
+    def test_signal_sign_and_nan_safety(self):
+        from model.predict import autoru_badge_signal
+
+        df = pd.DataFrame({"autoru_discount_pct": [-20, 10, 0, None]})
+        signal = autoru_badge_signal(df)
+        assert signal.iloc[0] == pytest.approx(0.20)  # below estimate → reward
+        assert signal.iloc[1] == pytest.approx(-0.10)  # above estimate → penalty
+        assert signal.iloc[2] == 0.0
+        assert signal.iloc[3] == 0.0  # no badge (NaN) → neutral
+
+    def test_missing_column_is_safe(self):
+        from model.predict import autoru_badge_signal
+
+        assert (autoru_badge_signal(pd.DataFrame({"price": [1, 2]})) == 0.0).all()
+
+    def test_car_autoru_calls_cheap_scores_higher(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        # Same car; auto.ru rates row 0 below its estimate, row 1 above it.
+        twin["autoru_discount_pct"] = [-15, 15]
+        rescored = rescore(twin)
+        assert rescored.loc[0, "score"] > rescored.loc[1, "score"]
+
+
 class TestDeliverySurcharge:
     def test_import_region_gets_surcharge_others_do_not(self):
         from model.predict import delivery_surcharge

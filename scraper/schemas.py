@@ -81,6 +81,8 @@ class RawAdSchema(BaseModel):
     fuel_type: str = ""
     modification: str = ""
     generation: str = ""
+    autoru_badge: str | None = None
+    autoru_discount_pct: int | None = None
 
 
 class CarAdSchema(BaseModel):
@@ -105,6 +107,10 @@ class CarAdSchema(BaseModel):
     fuel_type: str = ""
     modification: str = ""
     generation: str = ""
+    # Auto.ru's own price rating (an independent fair-price second opinion):
+    # raw badge text and its signed percent (negative = below the estimate).
+    autoru_badge: str | None = None
+    autoru_discount_pct: int | None = None
 
     @field_validator("price")
     @classmethod
@@ -165,6 +171,8 @@ def parse_raw_ad(raw: RawAdSchema) -> "CarAdSchema | None":
             fuel_type=raw.fuel_type.strip().lower(),
             modification=modification,
             generation=extract_generation(modification),
+            autoru_badge=raw.autoru_badge,
+            autoru_discount_pct=raw.autoru_discount_pct,
         )
     except (ValueError, AttributeError) as e:
         logger.error("Failed to parse ad %s: %s", raw.ad_id, e)

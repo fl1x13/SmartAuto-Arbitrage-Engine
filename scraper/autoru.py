@@ -38,6 +38,41 @@ _CONDITION_CLASS = re.compile(r"^ListingItemUniversalCondition")
 _PRICE_CLASS = re.compile(r"^ListingItemUniversalPrice__title")
 _REGION_CLASS = re.compile(r"^MetroListPlace__regionName")
 _IMAGE_CLASS = re.compile(r"^LazyImage__image")
+# auto.ru's fair-price badge on a listing card. The spec called it
+# "OfferPriceBadgeNew", but the live markup renders it as
+# ListingItemUniversalPrice__fairPriceBadge (hash-suffixed) — verified against
+# a live feed page. Matched on the stable prefix like every other lookup here.
+_BADGE_CLASS = re.compile(r"^ListingItemUniversalPrice__fairPriceBadge")
+_BADGE_PCT_RE = re.compile(r"(\d+)\s*%")
+
+
+def _parse_badge(card: Tag) -> tuple[str | None, int | None]:
+    """Extract auto.ru's own price-rating badge from a card.
+
+    Auto.ru grades each listing against its own fair-price estimate — an
+    independent second opinion on whether the car is cheap. The badge reads
+    "Ниже оценки на 15%", "Выше оценки на 3%" or "Справедливая цена".
+
+    Returns:
+        (raw badge text, signed percent) — negative below the estimate
+        (cheap), positive above it, 0 for a fair price; (None, None) when no
+        badge is shown, and (text, None) for an unrecognised variant.
+    """
+    node = card.find(class_=_BADGE_CLASS)
+    if node is None:
+        return None, None
+    text = node.get_text(" ", strip=True)
+    if not text:
+        return None, None
+    low = text.lower()
+    pct_match = _BADGE_PCT_RE.search(text)
+    if "ниже" in low and pct_match:
+        return text, -int(pct_match.group(1))
+    if "выше" in low and pct_match:
+        return text, int(pct_match.group(1))
+    if "справедлив" in low:
+        return text, 0
+    return text, None  # unknown variant: keep the raw text, no number
 
 
 def _first_srcset_url(srcset: str) -> str:
@@ -126,6 +161,8 @@ def _parse_card(card: Tag) -> RawAdSchema | None:
     region_node = card.find("span", class_=_REGION_CLASS)
     region = region_node.get_text(strip=True) if region_node else ""
 
+    autoru_badge, autoru_discount_pct = _parse_badge(card)
+
     return RawAdSchema(
         ad_id=int(url_match["ad_id"]),
         brand=url_match["brand"],
@@ -147,6 +184,8 @@ def _parse_card(card: Tag) -> RawAdSchema | None:
         # Full card title ("Mercedes-Benz GLS 450 d II (X167) Рестайлинг")
         # identifies trim and generation — far more than the URL slug.
         modification=link.get_text(" ", strip=True),
+        autoru_badge=autoru_badge,
+        autoru_discount_pct=autoru_discount_pct,
     )
 
 

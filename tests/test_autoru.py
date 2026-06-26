@@ -76,3 +76,50 @@ class TestParseAutoruPage:
 
     def test_empty_html(self):
         assert parse_autoru_page("<html><body></body></html>") == []
+
+
+class TestParseBadge:
+    @staticmethod
+    def _card(text: str, cls: str = "ListingItemUniversalPrice__fairPriceBadge-BsCSU"):
+        from bs4 import BeautifulSoup
+
+        return BeautifulSoup(f'<div><span class="{cls}">{text}</span></div>', "lxml")
+
+    def test_below_estimate_is_negative(self):
+        from scraper.autoru import _parse_badge
+
+        result = _parse_badge(self._card("Ниже оценки на 15%"))
+        assert result == ("Ниже оценки на 15%", -15)
+
+    def test_above_estimate_is_positive(self):
+        from scraper.autoru import _parse_badge
+
+        result = _parse_badge(self._card("Выше оценки на 3%"))
+        assert result == ("Выше оценки на 3%", 3)
+
+    def test_fair_price_is_zero(self):
+        from scraper.autoru import _parse_badge
+
+        result = _parse_badge(self._card("Справедливая цена"))
+        assert result == ("Справедливая цена", 0)
+
+    def test_no_badge_is_none(self):
+        from scraper.autoru import _parse_badge
+
+        assert _parse_badge(self._card("x", cls="Other")) == (None, None)
+
+    def test_badge_passes_through_validation(self):
+        from scraper.schemas import RawAdSchema, parse_raw_ad
+
+        raw = RawAdSchema(
+            ad_id=1, brand="kia", model="rio", year=2019,
+            mileage_raw="50 000", price_raw="900 000 ₽", body_type="седан",
+            engine_volume_raw="1.6", horse_power=123, transmission="автомат",
+            owners_count=1, url="https://auto.ru/cars/used/sale/kia/rio/1-a/",
+            published_at=__import__("datetime").datetime(2026, 6, 1),
+            autoru_badge="Ниже оценки на 12%", autoru_discount_pct=-12,
+        )
+        ad = parse_raw_ad(raw)
+        assert ad is not None
+        assert ad.autoru_badge == "Ниже оценки на 12%"
+        assert ad.autoru_discount_pct == -12

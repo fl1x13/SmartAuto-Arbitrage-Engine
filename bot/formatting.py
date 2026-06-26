@@ -66,6 +66,8 @@ def deal_caption(row: pd.Series, header: str = "") -> str:
             f"{CONFIDENCE_RU.get(row['confidence'], row['confidence'])}"
         ),
     ]
+    if row.get("autoru_badge"):
+        lines.append(f"🏷 Авто.ру: {html.escape(str(row['autoru_badge']))}")
     if row.get("is_suspicious"):
         lines.append(f"⚠️ {html.escape(str(row['suspicious_reason']))}")
     return "\n".join(lines)

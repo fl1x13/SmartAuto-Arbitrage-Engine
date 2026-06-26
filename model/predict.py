@@ -134,6 +134,28 @@ def delivery_surcharge(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def autoru_badge_signal(df: pd.DataFrame) -> pd.Series:
+    """Score contribution from auto.ru's own price rating.
+
+    auto.ru grades each listing against its own fair-price estimate
+    (``autoru_discount_pct``: negative = below the estimate, i.e. cheap). It is
+    an independent second opinion: a discount our model and auto.ru *agree* on
+    is a genuinely good car, while a big model discount that auto.ru rates
+    *above* its estimate is usually a fake discount (our fair price was too
+    high). Returned as the signed share (−pct/100), 0 when no badge is present.
+
+    Args:
+        df: DataFrame with an autoru_discount_pct column (0 signal when absent).
+
+    Returns:
+        Float Series aligned with df.index.
+    """
+    if "autoru_discount_pct" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+    pct = pd.to_numeric(df["autoru_discount_pct"], errors="coerce").fillna(0.0)
+    return -pct / 100
+
+
 def segment_discount_haircut(df: pd.DataFrame) -> pd.Series:
     """Discount noise allowance per listing, by market segment.
 
@@ -346,6 +368,7 @@ def rescore(
         + w3 * drop_share
         - w4 * mileage_penalty_share(df)
         - cfg.w5 * df["is_suspicious"].astype(float)
+        + cfg.w6 * autoru_badge_signal(df)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
     df["discount_pct"] = (discount * 100).round(1)
@@ -507,6 +530,7 @@ def enrich_with_predictions(
         + cfg.w2 * liquidity
         - cfg.w4 * mileage_penalty_share(df)
         - cfg.w5 * df["is_suspicious"].astype(float)
+        + cfg.w6 * autoru_badge_signal(df)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
 

@@ -54,6 +54,11 @@ class CarAd(Base):
     fuel_type = Column(String, default="")
     modification = Column(String, default="")
     generation = Column(String, default="")
+    # Auto.ru's own price-rating badge: raw text ("Ниже оценки на 15%") and its
+    # signed percent (negative = below auto.ru's estimate). An independent
+    # second opinion on the fair price; NULL when no badge was shown.
+    autoru_badge = Column(String, nullable=True)
+    autoru_discount_pct = Column(Integer, nullable=True)
     # 1 once the listing is confirmed sold/removed (its page shows a "продан"
     # banner and drops the price). Sold ads stay in the DB for price history
     # but are excluded from every deal surface. Reset to 0 the moment the ad
@@ -102,6 +107,17 @@ def _migrate(engine) -> None:
                 text("ALTER TABLE raw_ads ADD COLUMN sold INTEGER DEFAULT 0")
             )
         logger.info("Migration: added raw_ads.sold column")
+    # Auto.ru badge fields are nullable (no badge → NULL, not a sentinel).
+    for column, sql_type in (
+        ("autoru_badge", "VARCHAR"),
+        ("autoru_discount_pct", "INTEGER"),
+    ):
+        if column not in columns:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f"ALTER TABLE raw_ads ADD COLUMN {column} {sql_type}")
+                )
+            logger.info("Migration: added raw_ads.%s column", column)
 
 
 def save_ads(ads: list[CarAdSchema], engine=None) -> int:
@@ -135,6 +151,9 @@ def save_ads(ads: list[CarAdSchema], engine=None) -> int:
             else:
                 # Seen in the feed → it is live; clear any stale sold flag.
                 existing.sold = 0
+                # Auto.ru's badge is a live rating — refresh it each sighting.
+                existing.autoru_badge = ad.autoru_badge
+                existing.autoru_discount_pct = ad.autoru_discount_pct
                 # Backfill columns on rows scraped before they existed
                 for column in (
                     "drive", "image_url", "fuel_type", "modification", "generation",
