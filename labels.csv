@@ -1,21 +1,21 @@
-ad_id,brand,model,year,mileage,price,discount_pct,url,label
-1131313528,kia,cerato,2018,140000,1050000,33.4,https://auto.ru/cars/used/sale/kia/cerato/1131313528-76641f13/,good
-1132386957,hyundai,palisade,2026,30,5600000,30.8,https://auto.ru/cars/used/sale/hyundai/palisade/1132386957-509fbaaa/,good
-1131029570,vaz,granta,2017,87214,350000,30.5,https://auto.ru/cars/used/sale/vaz/granta/1131029570-84ab6dce/,good
-1132345650,kia,rio,2017,122020,775000,29.2,https://auto.ru/cars/used/sale/kia/rio/1132345650-01c778cf/,good
-1133070954,kia,rio,2019,53000,900000,28.9,https://auto.ru/cars/used/sale/kia/rio/1133070954-7df8658e/,good
-1133069122,toyota,land cruiser prado,2019,154715,3148000,29.2,https://auto.ru/cars/used/sale/toyota/land_cruiser_prado/1133069122-eddc2d2f/,trash
-1132974693,vaz,2170,2014,124000,340000,34.6,https://auto.ru/cars/used/sale/vaz/2170/1132974693-6419d25d/,
-1129471721,volkswagen,polo,2019,100000,750000,34.5,https://auto.ru/cars/used/sale/volkswagen/polo/1129471721-2e3099b0/,good
-1132982272,vaz,kalina,2011,111111,199000,31.4,https://auto.ru/cars/used/sale/vaz/kalina/1132982272-77691510/,
-1132976789,vaz,granta,2013,145000,250000,27.3,https://auto.ru/cars/used/sale/vaz/granta/1132976789-72c8ac7f/,
-1131259425,hyundai,santa fe,2008,175000,820000,30.3,https://auto.ru/cars/used/sale/hyundai/santa_fe/1131259425-7717e727/,
-1132978131,skoda,octavia,2012,161500,670000,29.6,https://auto.ru/cars/used/sale/skoda/octavia/1132978131-f8c773e7/,
-1132344141,toyota,c hr,2020,49600,2100000,26.7,https://auto.ru/cars/used/sale/toyota/c_hr/1132344141-9a766db0/,
-1132983622,ford,focus,2013,129375,795000,27.6,https://auto.ru/cars/used/sale/ford/focus/1132983622-b44dac27/,
-1132987589,vaz,largus,2019,146500,470000,31.1,https://auto.ru/cars/used/sale/vaz/largus/1132987589-7aa4909d/,
-1133069736,toyota,passo,2010,168000,375000,28.4,https://auto.ru/cars/used/sale/toyota/passo/1133069736-4de1791b/,
-1132967736,hyundai,accent,2008,181000,260000,34.8,https://auto.ru/cars/used/sale/hyundai/accent/1132967736-0f55acf1/,
-1132975355,renault,sandero,2010,117000,449000,31.2,https://auto.ru/cars/used/sale/renault/sandero/1132975355-c2777b13/,
-1132973694,vaz,granta,2020,145935,570000,26.0,https://auto.ru/cars/used/sale/vaz/granta/1132973694-99788cf5/,
-1126007747,kia,rio,2016,113000,920000,25.6,https://auto.ru/cars/used/sale/kia/rio/1126007747-2f598cae/,
+ad_id;brand;model;year;mileage;price;discount_pct;url;label
+1131313528;kia;cerato;2018;140000;1050000;33.4;https://auto.ru/cars/used/sale/kia/cerato/1131313528-76641f13/;good
+1132386957;hyundai;palisade;2026;30;5600000;30.авг;https://auto.ru/cars/used/sale/hyundai/palisade/1132386957-509fbaaa/;good
+1131029570;vaz;granta;2017;87214;350000;30.май;https://auto.ru/cars/used/sale/vaz/granta/1131029570-84ab6dce/;good
+1132345650;kia;rio;2017;122020;775000;29.2;https://auto.ru/cars/used/sale/kia/rio/1132345650-01c778cf/;good
+1133070954;kia;rio;2019;53000;900000;28.сент;https://auto.ru/cars/used/sale/kia/rio/1133070954-7df8658e/;good
+1133069122;toyota;land cruiser prado;2019;154715;3148000;29.2;https://auto.ru/cars/used/sale/toyota/land_cruiser_prado/1133069122-eddc2d2f/;trash
+1132974693;vaz;2170;2014;124000;340000;34.6;https://auto.ru/cars/used/sale/vaz/2170/1132974693-6419d25d/;trash
+1129471721;volkswagen;polo;2019;100000;750000;34.5;https://auto.ru/cars/used/sale/volkswagen/polo/1129471721-2e3099b0/;good
+1132982272;vaz;kalina;2011;111111;199000;31.4;https://auto.ru/cars/used/sale/vaz/kalina/1132982272-77691510/;trash
+1132976789;vaz;granta;2013;145000;250000;27.март;https://auto.ru/cars/used/sale/vaz/granta/1132976789-72c8ac7f/;trash
+1131259425;hyundai;santa fe;2008;175000;820000;30.март;https://auto.ru/cars/used/sale/hyundai/santa_fe/1131259425-7717e727/;trash
+1132978131;skoda;octavia;2012;161500;670000;29.июнь;https://auto.ru/cars/used/sale/skoda/octavia/1132978131-f8c773e7/;trash
+1132344141;toyota;c hr;2020;49600;2100000;26.июль;https://auto.ru/cars/used/sale/toyota/c_hr/1132344141-9a766db0/;good
+1132983622;ford;focus;2013;129375;795000;27.июнь;https://auto.ru/cars/used/sale/ford/focus/1132983622-b44dac27/;trash
+1132987589;vaz;largus;2019;146500;470000;31.янв;https://auto.ru/cars/used/sale/vaz/largus/1132987589-7aa4909d/;good
+1133069736;toyota;passo;2010;168000;375000;28.апр;https://auto.ru/cars/used/sale/toyota/passo/1133069736-4de1791b/;trash
+1132967736;hyundai;accent;2008;181000;260000;34.8;https://auto.ru/cars/used/sale/hyundai/accent/1132967736-0f55acf1/;trash
+1132975355;renault;sandero;2010;117000;449000;31.2;https://auto.ru/cars/used/sale/renault/sandero/1132975355-c2777b13/;trash
+1132973694;vaz;granta;2020;145935;570000;26.0;https://auto.ru/cars/used/sale/vaz/granta/1132973694-99788cf5/;good
+1126007747;kia;rio;2016;113000;920000;25.июнь;https://auto.ru/cars/used/sale/kia/rio/1126007747-2f598cae/;trash

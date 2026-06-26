@@ -79,6 +79,7 @@ def report_precision(top: pd.DataFrame) -> None:
         sep=None,
         engine="python",
         encoding="utf-8-sig",
+        encoding_errors="replace",  # Excel can corrupt the unread discount cells
         dtype={"ad_id": "Int64"},
     )
     labels["label"] = labels["label"].astype(str).str.strip().str.lower()
@@ -141,6 +142,7 @@ def _existing_labels() -> pd.DataFrame:
         sep=None,
         engine="python",
         encoding="utf-8-sig",
+        encoding_errors="replace",  # Excel can corrupt the unread discount cells
         dtype={"ad_id": "Int64"},
     )
     if "ad_id" not in prev.columns or "label" not in prev.columns:
