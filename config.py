@@ -202,6 +202,19 @@ class Config:
     # No running car sells below this — anything cheaper is parts/typo/fraud.
     min_plausible_price: int = 30_000
 
+    # Far-from-centre regions: a car here is cheaper at source, but a central-
+    # Russia buyer pays to bring it across the country — and these far-east hubs
+    # are the Korea/Japan import channel (RHD, "на заказ", price often quoted
+    # only as far as Vladivostok). Its sticker therefore understates the landed
+    # cost, so the discount is measured against price + delivery, not the
+    # sticker alone — otherwise these listings always look the cheapest.
+    import_delivery_surcharge: int = 150_000
+    import_regions: set = field(default_factory=lambda: {
+        "Владивосток", "Уссурийск", "Артём", "Находка", "Хабаровск",
+        "Благовещенск", "Комсомольск-на-Амуре", "Южно-Сахалинск",
+        "Чита", "Улан-Удэ", "Биробиджан",
+    })
+
     # Sold-listing prune: how many of the highest-scoring ads to verify live
     # each cycle. Only ads that could surface as deals are checked, so the
     # network cost stays bounded; a sold ad's page is fetched and, if its

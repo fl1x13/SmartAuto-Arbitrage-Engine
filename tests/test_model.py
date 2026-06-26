@@ -168,6 +168,39 @@ class TestDiscountRewardCap:
         assert rescored.loc[0, "score"] == pytest.approx(rescored.loc[1, "score"])
 
 
+class TestDeliverySurcharge:
+    def test_import_region_gets_surcharge_others_do_not(self):
+        from model.predict import delivery_surcharge
+
+        df = pd.DataFrame({"region": ["Владивосток", "Москва", "Хабаровск"]})
+        surcharge = delivery_surcharge(df)
+        assert surcharge.iloc[0] == cfg.import_delivery_surcharge
+        assert surcharge.iloc[1] == 0
+        assert surcharge.iloc[2] == cfg.import_delivery_surcharge
+
+    def test_missing_region_column_is_safe(self):
+        from model.predict import delivery_surcharge
+
+        surcharge = delivery_surcharge(pd.DataFrame({"price": [1, 2]}))
+        assert (surcharge == 0).all()
+
+    def test_far_east_twin_discounts_less_and_scores_no_higher(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        twin["region"] = ["Москва", "Владивосток"]
+        rescored = rescore(twin)
+        # The far-east twin's landed price is higher, so its discount shrinks
+        # and it can never outrank its identical domestic counterpart.
+        assert rescored.loc[1, "discount_pct"] < rescored.loc[0, "discount_pct"]
+        assert rescored.loc[1, "score"] <= rescored.loc[0, "score"]
+
+
 class TestSegmentDiscountHaircut:
     def test_premium_and_luxury_get_haircut_mass_does_not(self):
         from model.predict import segment_discount_haircut

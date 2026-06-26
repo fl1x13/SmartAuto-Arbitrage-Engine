@@ -110,6 +110,30 @@ def mileage_penalty_share(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def delivery_surcharge(df: pd.DataFrame) -> pd.Series:
+    """Delivery cost to central Russia per listing, by region.
+
+    A car in a far-east hub (``cfg.import_regions``) is cheaper at source but
+    the buyer pays ``cfg.import_delivery_surcharge`` to bring it across the
+    country — and these are the Korea/Japan import lanes, where the sticker is
+    often only the price "to Vladivostok". Adding this to the price before the
+    discount is computed compares the *landed* cost against the model's
+    nationwide fair value, so an import no longer looks cheaper than a domestic
+    car just for omitting the freight.
+
+    Args:
+        df: DataFrame with a region column (0 surcharge when absent).
+
+    Returns:
+        Integer Series aligned with df.index.
+    """
+    if "region" not in df.columns:
+        return pd.Series(0, index=df.index)
+    return df["region"].isin(cfg.import_regions).astype(int) * (
+        cfg.import_delivery_surcharge
+    )
+
+
 def segment_discount_haircut(df: pd.DataFrame) -> pd.Series:
     """Discount noise allowance per listing, by market segment.
 
@@ -307,7 +331,9 @@ def rescore(
     df = df.copy()
     liquidity = market_liquidity(df)
     pred = df["predicted_price"].where(df["predicted_price"] > 0)
-    discount = ((pred - df["price"]) / pred).fillna(0.0)
+    df["delivery_surcharge"] = delivery_surcharge(df)
+    df["landed_price"] = df["price"] + df["delivery_surcharge"]
+    discount = ((pred - df["landed_price"]) / pred).fillna(0.0)
     drop_share = (
         df["price_drop_pct"].clip(lower=0) / 100
         if "price_drop_pct" in df.columns
@@ -350,7 +376,11 @@ def evaluate_listing(
     df = row_df.copy()
     df["predicted_price"] = predict_price(df, model).astype(int)
     pred = df["predicted_price"].where(df["predicted_price"] > 0)
-    df["discount_pct"] = (((pred - df["price"]) / pred).fillna(0.0) * 100).round(1)
+    df["delivery_surcharge"] = delivery_surcharge(df)
+    df["landed_price"] = df["price"] + df["delivery_surcharge"]
+    df["discount_pct"] = (
+        ((pred - df["landed_price"]) / pred).fillna(0.0) * 100
+    ).round(1)
 
     row = df.iloc[0]
     same_model = (market_df["brand"] == row["brand"]) & (
@@ -449,7 +479,12 @@ def enrich_with_predictions(
     df["predicted_price"] = _apply_corrections(df, corrections)
 
     pred = df["predicted_price"].where(df["predicted_price"] > 0)
-    discount = ((pred - df["price"]) / pred).fillna(0.0)
+    # Discount is measured against the landed price (sticker + delivery to
+    # central Russia), so a far-east import is not flattered by freight it
+    # omits from the sticker.
+    df["delivery_surcharge"] = delivery_surcharge(df)
+    df["landed_price"] = df["price"] + df["delivery_surcharge"]
+    discount = ((pred - df["landed_price"]) / pred).fillna(0.0)
     df["discount_pct"] = (discount * 100).round(1)
     df["sample_count"] = df.groupby(["brand", "model"])["price"].transform("size")
     df["confidence"] = _confidence_from_sample_count(df["sample_count"])

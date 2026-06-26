@@ -35,7 +35,11 @@ def deal_caption(row: pd.Series, header: str = "") -> str:
     )
     if row.get("fuel_type"):
         engine += f", {row['fuel_type']}"
-    benefit = row["predicted_price"] - row["price"]
+    # Benefit (and the discount it mirrors) is measured against the landed
+    # price, so a far-east import is not flattered by the delivery it omits.
+    surcharge = int(row.get("delivery_surcharge", 0) or 0)
+    landed = row["price"] + surcharge
+    benefit = row["predicted_price"] - landed
     sign = "−" if benefit < 0 else ""
     lines = []
     if header:
@@ -43,6 +47,13 @@ def deal_caption(row: pd.Series, header: str = "") -> str:
     lines += [
         f"<b>{html.escape(_title(row))}</b>  {row['deal_grade']}",
         f"💰 <b>{rub(row['price'])}</b> · рынок: {rub(row['predicted_price'])}",
+    ]
+    if surcharge:
+        lines.append(
+            f"🚚 +{rub(surcharge)} доставка из {row.get('region') or '—'} "
+            f"→ {rub(landed)} под ключ"
+        )
+    lines += [
         (
             f"📉 Выгода: <b>{row['discount_pct']:+.1f}%</b> "
             f"({sign}{rub(abs(benefit))})"
