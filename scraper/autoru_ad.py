@@ -179,6 +179,76 @@ def fetch_ad_by_url(url: str) -> CarAdSchema | None:
     return parse_ad_page(html, url)
 
 
+# A sold/removed listing keeps its page live but drops the price and shows a
+# "продан"/"снято с продажи" banner; a live ad always carries a price in its
+# server-rendered og:description (verified against live auto.ru pages).
+_SOLD_MARKERS = (
+    "уже продан",
+    "снято с продаж",
+    "объявление снято",
+    "больше не размещено",
+)
+
+
+def is_sold_page(html: str) -> bool:
+    """Whether an auto.ru ad page shows the listing is sold/removed.
+
+    Conservative by design: returns True only on a positive sold signal, so a
+    transient captcha/error page (which carries none of these markers and no
+    og:description) is treated as live — a listing is never dropped on a fluke.
+
+    Args:
+        html: Full HTML of the ad page.
+
+    Returns:
+        True when the page is confidently sold/removed, else False.
+    """
+    low = html.lower()
+    if any(marker in low for marker in _SOLD_MARKERS):
+        return True
+    # A server-rendered og:description with no price is a removed listing;
+    # its absence entirely (captcha/block) is ambiguous, so we keep the ad.
+    match = re.search(r'property="og:description"\s+content="([^"]*)"', html)
+    return bool(match and match.group(1) and not _PRICE_RE.search(match.group(1)))
+
+
+async def _collect_sold(
+    pairs: list[tuple[int, str]], concurrency: int = 8
+) -> set[int]:
+    """Fetch each ad page concurrently and return the ad_ids that are sold."""
+    semaphore = asyncio.Semaphore(concurrency)
+    sold: set[int] = set()
+
+    async def _check(ad_id: int, url: str) -> None:
+        async with semaphore:
+            try:
+                html = await _fetch(url)
+            except (aiohttp.ClientError, TimeoutError, OSError):
+                return  # fail open: a fetch error never drops a live ad
+            if is_sold_page(html):
+                sold.add(ad_id)
+
+    await asyncio.gather(*(_check(ad_id, url) for ad_id, url in pairs))
+    return sold
+
+
+def find_sold_ad_ids(pairs: list[tuple[int, str]]) -> set[int]:
+    """Return the subset of (ad_id, url) pairs whose listing is sold/removed.
+
+    Runs the page fetches concurrently. Intended for sync/offline contexts
+    (the prune job, the scheduler thread), not inside a running event loop.
+
+    Args:
+        pairs: (ad_id, url) tuples to verify.
+
+    Returns:
+        Set of ad_ids confirmed sold (empty on no input or total fetch failure).
+    """
+    if not pairs:
+        return set()
+    return asyncio.run(_collect_sold(pairs))
+
+
 def _clean_ws(text: str) -> str:
     """Collapse runs of whitespace into single spaces."""
     return re.sub(r"\s+", " ", text).strip()

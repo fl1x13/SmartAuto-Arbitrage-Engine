@@ -15,12 +15,11 @@ Usage:
 import sys
 
 import pandas as pd
-from sqlalchemy import create_engine
 
-from config import BASE_DIR, cfg
+from config import BASE_DIR
 from model.predict import enrich_with_predictions, load_model
 from processing.preprocessor import DataPreprocessor
-from scraper.storage import get_price_dynamics
+from scraper.storage import get_engine, get_price_dynamics
 
 TOP_N = 20
 LABELS_PATH = BASE_DIR / "labels.csv"
@@ -51,8 +50,8 @@ def load_top_deals(n: int = TOP_N) -> pd.DataFrame:
     Mirrors ``app.data_loader.load_enriched_data`` so the ranking measured
     here is the same one the bot and dashboard surface to users.
     """
-    engine = create_engine(cfg.db_url)
-    df = pd.read_sql("SELECT * FROM raw_ads", engine)
+    engine = get_engine()  # ensures the sold column exists (runs migrations)
+    df = pd.read_sql("SELECT * FROM raw_ads WHERE COALESCE(sold, 0) = 0", engine)
     df = DataPreprocessor().fit_transform(df)
     df = enrich_with_predictions(
         df, load_model(), price_dynamics=get_price_dynamics(engine)

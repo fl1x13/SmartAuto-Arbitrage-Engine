@@ -7,7 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from scraper.schemas import CarAdSchema
-from scraper.storage import Base, PriceHistory, get_price_dynamics, save_ads
+from scraper.storage import (
+    Base,
+    CarAd,
+    PriceHistory,
+    get_price_dynamics,
+    mark_ads_sold,
+    save_ads,
+)
 
 
 @pytest.fixture()
@@ -72,3 +79,25 @@ class TestPriceDynamics:
     def test_empty_history_returns_empty_frame(self, engine):
         dynamics = get_price_dynamics(engine)
         assert dynamics.empty
+
+
+class TestSoldFlag:
+    def test_mark_ads_sold_flags_only_named_rows(self, engine):
+        save_ads([_make_ad(1), _make_ad(2)], engine)
+        flagged = mark_ads_sold({1}, engine)
+        assert flagged == 1
+        with Session(engine) as session:
+            assert session.get(CarAd, 1).sold == 1
+            assert session.get(CarAd, 2).sold == 0
+
+    def test_mark_ads_sold_is_idempotent(self, engine):
+        save_ads([_make_ad(1)], engine)
+        mark_ads_sold({1}, engine)
+        assert mark_ads_sold({1}, engine) == 0  # already sold, not re-counted
+
+    def test_reseen_ad_clears_sold_flag(self, engine):
+        save_ads([_make_ad(1)], engine)
+        mark_ads_sold({1}, engine)
+        save_ads([_make_ad(1)], engine)  # reappears in the feed → live again
+        with Session(engine) as session:
+            assert session.get(CarAd, 1).sold == 0

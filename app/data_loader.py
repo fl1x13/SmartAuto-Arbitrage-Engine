@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from config import cfg
 from model.predict import enrich_with_predictions, load_model
 from processing.preprocessor import DataPreprocessor
-from scraper.storage import get_price_dynamics
+from scraper.storage import get_engine, get_price_dynamics
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ def load_enriched_data() -> pd.DataFrame:
         DataFrame with all feature columns plus prediction/deal-analysis
         columns (predicted_price, score, deal_grade, price_drop_pct, ...).
     """
-    engine = create_engine(cfg.db_url)
-    df = pd.read_sql("SELECT * FROM raw_ads", engine)
+    engine = get_engine()  # ensures the sold column exists (runs migrations)
+    df = pd.read_sql("SELECT * FROM raw_ads WHERE COALESCE(sold, 0) = 0", engine)
     preprocessor = DataPreprocessor()
     df = preprocessor.fit_transform(df)
     model = load_model()

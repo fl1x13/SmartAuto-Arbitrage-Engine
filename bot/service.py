@@ -10,7 +10,6 @@ import time
 from datetime import datetime
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 from bot import feedback
 from config import cfg
@@ -22,7 +21,7 @@ from model.predict import (
 )
 from processing.preprocessor import DataPreprocessor
 from scraper.autoru import AD_URL_RE
-from scraper.storage import get_price_dynamics
+from scraper.storage import get_engine, get_price_dynamics
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +64,8 @@ def load_market(force: bool = False) -> pd.DataFrame:
     if not force and _cache["df"] is not None and age < cfg.bot_cache_ttl_seconds:
         return _cache["df"]
 
-    engine = create_engine(cfg.db_url)
-    df = pd.read_sql("SELECT * FROM raw_ads", engine)
+    engine = get_engine()  # ensures the sold column exists (runs migrations)
+    df = pd.read_sql("SELECT * FROM raw_ads WHERE COALESCE(sold, 0) = 0", engine)
     df = DataPreprocessor().fit_transform(df)
     df = enrich_with_predictions(
         df,

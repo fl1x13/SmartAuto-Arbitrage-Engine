@@ -202,6 +202,12 @@ class Config:
     # No running car sells below this — anything cheaper is parts/typo/fraud.
     min_plausible_price: int = 30_000
 
+    # Sold-listing prune: how many of the highest-scoring ads to verify live
+    # each cycle. Only ads that could surface as deals are checked, so the
+    # network cost stays bounded; a sold ad's page is fetched and, if its
+    # "продан" banner shows, it is flagged out of every deal surface.
+    liveness_check_top_n: int = 120
+
     # Telegram bot
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     bot_top_n: int = 5  # deals per reply (phone-friendly)

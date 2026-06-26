@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scraper.autoru_ad import parse_ad_details, parse_ad_page
+from scraper.autoru_ad import is_sold_page, parse_ad_details, parse_ad_page
 
 FIXTURE = Path(__file__).parent / "fixtures" / "autoru_ad_page.html"
 URL = "https://auto.ru/cars/used/sale/toyota/land_cruiser/1046891338-4cf01/"
@@ -117,3 +117,30 @@ class TestParseAdDetails:
     def test_empty_page_yields_empty_fields(self):
         d = parse_ad_details("<html><body></body></html>")
         assert d == {"description": "", "specs": {}, "complectation": ""}
+
+
+class TestIsSoldPage:
+    def test_sold_banner_is_detected(self):
+        assert is_sold_page("<html>Этот автомобиль УЖЕ ПРОДАН на auto.ru</html>")
+
+    def test_removed_listing_banner_is_detected(self):
+        assert is_sold_page("<html>Объявление снято с продажи</html>")
+
+    def test_live_page_with_price_is_not_sold(self):
+        html = (
+            '<meta property="og:description" content="Седан Kia Rio 2018 '
+            'года, пробег 90 000 км за 900 000 рублей."/>'
+        )
+        assert not is_sold_page(html)
+
+    def test_og_description_without_price_is_sold(self):
+        html = (
+            '<meta property="og:description" content="Седан Kia Rio 2018 '
+            'года, пробег 90 000 км."/>'
+        )
+        assert is_sold_page(html)
+
+    def test_captcha_or_error_page_is_kept_live(self):
+        # No sold marker and no og:description → ambiguous → never dropped.
+        captcha = "<html><body>Подтвердите, что вы не робот</body></html>"
+        assert not is_sold_page(captcha)

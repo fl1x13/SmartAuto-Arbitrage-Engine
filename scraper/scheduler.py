@@ -33,6 +33,17 @@ async def scheduled_scrape_job() -> None:
         _new_ads_since_retrain,
     )
 
+    # Flag sold/removed listings so they drop off the deal surfaces. Runs off
+    # the event loop (it makes blocking page fetches) and never blocks the
+    # scrape cycle on failure.
+    try:
+        from scripts.prune_sold import prune_sold
+
+        flagged = await asyncio.to_thread(prune_sold)
+        logger.info("Sold-listing prune: %d newly flagged", flagged)
+    except Exception as e:  # noqa: BLE001 — a prune failure must not stop scraping
+        logger.error("Sold-listing prune failed: %s: %s", type(e).__name__, e)
+
     if _new_ads_since_retrain >= cfg.retrain_min_new_ads:
         await _retrain_model()
         _new_ads_since_retrain = 0

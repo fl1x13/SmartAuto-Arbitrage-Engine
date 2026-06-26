@@ -54,6 +54,11 @@ class CarAd(Base):
     fuel_type = Column(String, default="")
     modification = Column(String, default="")
     generation = Column(String, default="")
+    # 1 once the listing is confirmed sold/removed (its page shows a "продан"
+    # banner and drops the price). Sold ads stay in the DB for price history
+    # but are excluded from every deal surface. Reset to 0 the moment the ad
+    # reappears in a scrape feed — being listed again is proof it is live.
+    sold = Column(Integer, default=0)
 
 
 class PriceHistory(Base):
@@ -91,6 +96,12 @@ def _migrate(engine) -> None:
                     )
                 )
             logger.info("Migration: added raw_ads.%s column", column)
+    if "sold" not in columns:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE raw_ads ADD COLUMN sold INTEGER DEFAULT 0")
+            )
+        logger.info("Migration: added raw_ads.sold column")
 
 
 def save_ads(ads: list[CarAdSchema], engine=None) -> int:
@@ -122,6 +133,8 @@ def save_ads(ads: list[CarAdSchema], engine=None) -> int:
                 )
                 inserted += 1
             else:
+                # Seen in the feed → it is live; clear any stale sold flag.
+                existing.sold = 0
                 # Backfill columns on rows scraped before they existed
                 for column in (
                     "drive", "image_url", "fuel_type", "modification", "generation",
@@ -145,6 +158,32 @@ def save_ads(ads: list[CarAdSchema], engine=None) -> int:
         len(ads) - inserted - updated,
     )
     return inserted
+
+
+def mark_ads_sold(ad_ids: set[int], engine=None) -> int:
+    """Flag the given ads as sold so they drop out of every deal surface.
+
+    Args:
+        ad_ids: Listing identifiers confirmed sold/removed.
+        engine: Optional SQLAlchemy engine; creates one from config if not given.
+
+    Returns:
+        Number of rows newly flagged (already-sold rows are not re-counted).
+    """
+    if not ad_ids:
+        return 0
+    if engine is None:
+        engine = get_engine()
+    flagged = 0
+    with Session(engine) as session:
+        for ad_id in ad_ids:
+            ad = session.get(CarAd, ad_id)
+            if ad is not None and not ad.sold:
+                ad.sold = 1
+                flagged += 1
+        session.commit()
+    logger.info("Marked %d listings sold", flagged)
+    return flagged
 
 
 def get_price_dynamics(engine=None) -> pd.DataFrame:
