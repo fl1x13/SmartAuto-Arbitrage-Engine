@@ -134,26 +134,30 @@ def delivery_surcharge(df: pd.DataFrame) -> pd.Series:
     )
 
 
-def autoru_badge_signal(df: pd.DataFrame) -> pd.Series:
-    """Score contribution from auto.ru's own price rating.
+def autoru_badge_overclaim(df: pd.DataFrame, our_discount: pd.Series) -> pd.Series:
+    """How much more discount we claim than auto.ru's own price rating allows.
 
-    auto.ru grades each listing against its own fair-price estimate
-    (``autoru_discount_pct``: negative = below the estimate, i.e. cheap). It is
-    an independent second opinion: a discount our model and auto.ru *agree* on
-    is a genuinely good car, while a big model discount that auto.ru rates
-    *above* its estimate is usually a fake discount (our fair price was too
-    high). Returned as the signed share (−pct/100), 0 when no badge is present.
+    auto.ru anchors each listing's fair price with a badge — overwhelmingly
+    "Справедливая цена" (``autoru_discount_pct`` 0), occasionally "Ниже оценки
+    на X%" (negative). It is an independent authority: when auto.ru calls a
+    price fair but our model claims a 29% discount, the excess is almost always
+    our model overvaluing the car (the Prado/old-car failure mode), not a real
+    deal. The *overclaim* — our discount beyond what auto.ru grants — is
+    returned so the score can penalise it. Agreement, or us being the more
+    conservative of the two, costs nothing; a listing with no badge → 0.
 
     Args:
-        df: DataFrame with an autoru_discount_pct column (0 signal when absent).
+        df: DataFrame with an autoru_discount_pct column (0 when absent).
+        our_discount: Our own discount share (landed) aligned with df.index.
 
     Returns:
-        Float Series aligned with df.index.
+        Float Series in [0, …] aligned with df.index.
     """
     if "autoru_discount_pct" not in df.columns:
         return pd.Series(0.0, index=df.index)
-    pct = pd.to_numeric(df["autoru_discount_pct"], errors="coerce").fillna(0.0)
-    return -pct / 100
+    autoru_share = -pd.to_numeric(df["autoru_discount_pct"], errors="coerce") / 100
+    overclaim = (our_discount - autoru_share).clip(lower=0)
+    return overclaim.fillna(0.0)  # NaN = no badge → no adjustment
 
 
 def segment_discount_haircut(df: pd.DataFrame) -> pd.Series:
@@ -394,7 +398,7 @@ def rescore(
         + w3 * drop_share
         - w4 * mileage_penalty_share(df)
         - cfg.w5 * df["is_suspicious"].astype(float)
-        + cfg.w6 * autoru_badge_signal(df)
+        - cfg.w6 * autoru_badge_overclaim(df, discount)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
     df["discount_pct"] = (discount * 100).round(1)
@@ -556,7 +560,7 @@ def enrich_with_predictions(
         + cfg.w2 * liquidity
         - cfg.w4 * mileage_penalty_share(df)
         - cfg.w5 * df["is_suspicious"].astype(float)
-        + cfg.w6 * autoru_badge_signal(df)
+        - cfg.w6 * autoru_badge_overclaim(df, discount)
     )
     df.loc[df["predicted_price"] <= 0, "score"] = 0.0
 

@@ -169,23 +169,25 @@ class TestDiscountRewardCap:
         assert rescored.loc[0, "score"] == pytest.approx(rescored.loc[1, "score"])
 
 
-class TestAutoruBadgeSignal:
-    def test_signal_sign_and_nan_safety(self):
-        from model.predict import autoru_badge_signal
+class TestAutoruBadgeOverclaim:
+    def test_overclaim_vs_fair_and_agreement(self):
+        from model.predict import autoru_badge_overclaim
 
-        df = pd.DataFrame({"autoru_discount_pct": [-20, 10, 0, None]})
-        signal = autoru_badge_signal(df)
-        assert signal.iloc[0] == pytest.approx(0.20)  # below estimate → reward
-        assert signal.iloc[1] == pytest.approx(-0.10)  # above estimate → penalty
-        assert signal.iloc[2] == 0.0
-        assert signal.iloc[3] == 0.0  # no badge (NaN) → neutral
+        df = pd.DataFrame({"autoru_discount_pct": [0, -25, 0, None]})
+        our = pd.Series([0.30, 0.30, 0.05, 0.40])
+        overclaim = autoru_badge_overclaim(df, our)
+        assert overclaim.iloc[0] == pytest.approx(0.30)  # auto.ru fair, we claim 30%
+        assert overclaim.iloc[1] == pytest.approx(0.05)  # auto.ru -25%, we 30%
+        assert overclaim.iloc[2] == pytest.approx(0.05)  # small claim vs fair
+        assert overclaim.iloc[3] == 0.0  # no badge → no adjustment
 
     def test_missing_column_is_safe(self):
-        from model.predict import autoru_badge_signal
+        from model.predict import autoru_badge_overclaim
 
-        assert (autoru_badge_signal(pd.DataFrame({"price": [1, 2]})) == 0.0).all()
+        df = pd.DataFrame({"price": [1, 2]})
+        assert (autoru_badge_overclaim(df, pd.Series([0.3, 0.3])) == 0.0).all()
 
-    def test_car_autoru_calls_cheap_scores_higher(self, sample_df):
+    def test_fair_badge_demotes_a_claimed_discount(self, sample_df):
         if not cfg.model_path.exists():
             pytest.skip("Model artifact not trained yet")
         from model.predict import enrich_with_predictions, rescore
@@ -194,10 +196,11 @@ class TestAutoruBadgeSignal:
         df = DataPreprocessor().engineer_features(sample_df)
         enriched = enrich_with_predictions(df)
         twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
-        # Same car; auto.ru rates row 0 below its estimate, row 1 above it.
-        twin["autoru_discount_pct"] = [-15, 15]
+        twin["price"] = int(twin.loc[0, "predicted_price"] * 0.7)  # ~30% discount
+        # Row 0 has no badge; row 1 auto.ru rates "fair" — vetoing our discount.
+        twin["autoru_discount_pct"] = [None, 0]
         rescored = rescore(twin)
-        assert rescored.loc[0, "score"] > rescored.loc[1, "score"]
+        assert rescored.loc[1, "score"] < rescored.loc[0, "score"]
 
 
 class TestAgeDiscountHaircut:

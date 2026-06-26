@@ -107,10 +107,11 @@ class Config:
     w4: float = 0.15  # high-mileage penalty (worn cars are hard to resell)
     w5: float = 0.5  # suspicious-listing penalty (scam/hidden-problem cars
     # must sink below honest deals, not crown the ranking)
-    w6: float = 0.4  # weight of auto.ru's own price rating — an independent
-    # fair-price second opinion. Rewards listings auto.ru also calls cheap and
-    # demotes a model discount auto.ru rates as actually above its estimate
-    # (a fake discount). Zero contribution when a listing carries no badge.
+    w6: float = 0.4  # penalty weight for discount we claim beyond auto.ru's own
+    # price rating. auto.ru's badge anchors the fair price (mostly "Справедливая
+    # цена"); when it calls a price fair but our model claims a big discount,
+    # the excess is our model overvaluing the car, so it is demoted. Zero when a
+    # listing carries no badge.
     # Penalty kicks in above this mileage and grows by w4 per scale step:
     # 300k km → -w4, 450k km → -2*w4
     mileage_penalty_start: int = 150_000
