@@ -177,6 +177,32 @@ def segment_discount_haircut(df: pd.DataFrame) -> pd.Series:
     return df["brand_segment"].map(cfg.segment_discount_noise).fillna(0.0)
 
 
+def age_discount_haircut(df: pd.DataFrame) -> pd.Series:
+    """Discount noise allowance per listing, by car age.
+
+    The price model overvalues old cars, so their discounts are largely model
+    error rather than real deals (hand-labelling showed the misses clustered
+    in cars older than ``cfg.age_discount_start``). Shave
+    ``cfg.age_discount_per_year`` of discount per year past that age, capped at
+    ``cfg.age_discount_cap``, before it earns score or a hot grade.
+
+    Args:
+        df: DataFrame with a car_age column (0 allowance when absent).
+
+    Returns:
+        Float Series aligned with df.index.
+    """
+    if "car_age" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+    over = (df["car_age"] - cfg.age_discount_start).clip(lower=0)
+    return (over * cfg.age_discount_per_year).clip(upper=cfg.age_discount_cap)
+
+
+def total_discount_haircut(df: pd.DataFrame) -> pd.Series:
+    """Combined discount haircut: segment noise plus the old-car allowance."""
+    return segment_discount_haircut(df) + age_discount_haircut(df)
+
+
 def market_liquidity(df: pd.DataFrame) -> pd.Series:
     """Per-listing liquidity coefficient within ``cfg.liquidity_range``.
 
@@ -305,7 +331,7 @@ def _grade_deals(
     # Grade on the discount net of the segment noise allowance, so a premium
     # car merely 30% below market is graded "good", not "hot" — the same
     # haircut the score applies, kept consistent with what the user is shown.
-    eff_discount = df["discount_pct"] - segment_discount_haircut(df) * 100
+    eff_discount = df["discount_pct"] - total_discount_haircut(df) * 100
     conditions = [
         df["is_suspicious"],
         (eff_discount >= hot_threshold) & (df["confidence"] != "low"),
@@ -361,7 +387,7 @@ def rescore(
         if "price_drop_pct" in df.columns
         else 0.0
     )
-    eff_discount = (discount - segment_discount_haircut(df)).clip(lower=0)
+    eff_discount = (discount - total_discount_haircut(df)).clip(lower=0)
     df["score"] = (
         w1 * eff_discount.clip(upper=cfg.discount_reward_cap)
         + w2 * liquidity
@@ -524,7 +550,7 @@ def enrich_with_predictions(
     # per-segment haircut keeps premium out of the top unless it is
     # dramatically underpriced.
     liquidity = market_liquidity(df)
-    eff_discount = (discount - segment_discount_haircut(df)).clip(lower=0)
+    eff_discount = (discount - total_discount_haircut(df)).clip(lower=0)
     df["score"] = (
         cfg.w1 * eff_discount.clip(upper=cfg.discount_reward_cap)
         + cfg.w2 * liquidity

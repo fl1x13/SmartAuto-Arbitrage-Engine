@@ -132,6 +132,16 @@ class Config:
         "premium": 0.15,
         "luxury": 0.20,
     })
+    # Age discount haircut. The price model overvalues old cars (its
+    # depreciation curve is too shallow at the far end and the data thins out),
+    # so a 30% "discount" on a 12-year-old car is mostly model error, not a
+    # deal — hand-labelling showed the misses concentrated almost entirely in
+    # cars older than this. Shave age_discount_per_year of discount for each
+    # year past age_discount_start, capped, before it earns score or a hot
+    # grade, so an old car must be dramatically cheap to reach the top.
+    age_discount_start: int = 8
+    age_discount_per_year: float = 0.02
+    age_discount_cap: float = 0.22
 
     # Liquidity: data-driven from market depth (see model.predict.market_liquidity),
     # scaled into liquidity_range; liquidity_map holds manual brand overrides.

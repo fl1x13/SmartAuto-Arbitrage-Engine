@@ -63,13 +63,14 @@ class TestEnrichment:
         from model.predict import (
             market_liquidity,
             mileage_penalty_share,
-            segment_discount_haircut,
+            total_discount_haircut,
         )
 
         row = enriched.iloc[0]
         liquidity = market_liquidity(enriched).iloc[0]
-        discount = (row["predicted_price"] - row["price"]) / row["predicted_price"]
-        haircut = segment_discount_haircut(enriched).iloc[0]
+        landed = row["price"] + row.get("delivery_surcharge", 0)
+        discount = (row["predicted_price"] - landed) / row["predicted_price"]
+        haircut = total_discount_haircut(enriched).iloc[0]
         eff_discount = max(discount - haircut, 0.0)
         expected = (
             cfg.w1 * min(eff_discount, cfg.discount_reward_cap)
@@ -197,6 +198,43 @@ class TestAutoruBadgeSignal:
         twin["autoru_discount_pct"] = [-15, 15]
         rescored = rescore(twin)
         assert rescored.loc[0, "score"] > rescored.loc[1, "score"]
+
+
+class TestAgeDiscountHaircut:
+    def test_young_car_has_no_haircut(self):
+        from model.predict import age_discount_haircut
+
+        df = pd.DataFrame({"car_age": [0, cfg.age_discount_start]})
+        assert (age_discount_haircut(df) == 0).all()
+
+    def test_haircut_grows_with_age_and_caps(self):
+        from model.predict import age_discount_haircut
+
+        df = pd.DataFrame({"car_age": [cfg.age_discount_start + 3, 100]})
+        haircut = age_discount_haircut(df)
+        assert haircut.iloc[0] == pytest.approx(3 * cfg.age_discount_per_year)
+        assert haircut.iloc[1] == pytest.approx(cfg.age_discount_cap)  # clamped
+
+    def test_missing_age_column_is_safe(self):
+        from model.predict import age_discount_haircut
+
+        assert (age_discount_haircut(pd.DataFrame({"price": [1]})) == 0).all()
+
+    def test_old_twin_scores_below_young(self, sample_df):
+        if not cfg.model_path.exists():
+            pytest.skip("Model artifact not trained yet")
+        from model.predict import enrich_with_predictions, rescore
+        from processing.preprocessor import DataPreprocessor
+
+        df = DataPreprocessor().engineer_features(sample_df)
+        enriched = enrich_with_predictions(df)
+        twin = enriched.iloc[[0, 0]].copy().reset_index(drop=True)
+        twin["is_suspicious"] = False
+        twin["mileage"] = 50_000  # equal mileage penalty
+        twin["price"] = int(twin.loc[0, "predicted_price"] * 0.5)  # 50% discount
+        twin["car_age"] = [3, cfg.age_discount_start + 12]  # young vs old
+        rescored = rescore(twin)
+        assert rescored.loc[1, "score"] < rescored.loc[0, "score"]
 
 
 class TestDeliverySurcharge:
