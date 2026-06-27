@@ -15,6 +15,7 @@ import logging
 import random
 import re
 from datetime import datetime
+from typing import NamedTuple
 
 import truststore
 
@@ -25,7 +26,7 @@ import aiohttp  # noqa: E402
 from bs4 import BeautifulSoup  # noqa: E402
 
 from config import cfg  # noqa: E402
-from scraper.autoru import AD_URL_RE  # noqa: E402
+from scraper.autoru import AD_URL_RE, parse_badge_text  # noqa: E402
 from scraper.schemas import CarAdSchema, extract_generation  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -212,41 +213,83 @@ def is_sold_page(html: str) -> bool:
     return bool(match and match.group(1) and not _PRICE_RE.search(match.group(1)))
 
 
-async def _collect_sold(
+# auto.ru's price rating on the ad-detail page. Unlike the listing feed (which
+# only ever server-renders "Справедливая цена"), the detail page carries the
+# full rating — "Ниже/Выше оценки на X%" — in this element. The class is the
+# one the original spec named; it lives on the detail page, not the card.
+_DETAIL_BADGE_CLASS = re.compile(r"^OfferPriceBadgeNew")
+
+
+def parse_price_rating(html: str) -> tuple[str | None, int | None]:
+    """Extract auto.ru's own price rating from an ad-detail page.
+
+    The detail page is the rich source: it states whether the listing is below,
+    above or at auto.ru's fair-price estimate — the independent second opinion
+    that flags our model's fake discounts (e.g. a Prado our model calls -29%
+    that auto.ru rates "Выше оценки на 16%").
+
+    Args:
+        html: Full HTML of the ad page.
+
+    Returns:
+        (raw badge text, signed percent) — see :func:`scraper.autoru.parse_badge_text`;
+        (None, None) when the page carries no rating.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    node = soup.find(class_=_DETAIL_BADGE_CLASS)
+    if node is None:
+        return None, None
+    return parse_badge_text(node.get_text(" ", strip=True))
+
+
+class ListingState(NamedTuple):
+    """One ad's verified liveness and auto.ru price rating from its page."""
+
+    sold: bool
+    badge: str | None
+    badge_pct: int | None
+
+
+async def _collect_states(
     pairs: list[tuple[int, str]], concurrency: int = 8
-) -> set[int]:
-    """Fetch each ad page concurrently and return the ad_ids that are sold."""
+) -> dict[int, ListingState]:
+    """Fetch each ad page once and read both sold status and the price rating."""
     semaphore = asyncio.Semaphore(concurrency)
-    sold: set[int] = set()
+    states: dict[int, ListingState] = {}
 
     async def _check(ad_id: int, url: str) -> None:
         async with semaphore:
             try:
                 html = await _fetch(url)
             except (aiohttp.ClientError, TimeoutError, OSError):
-                return  # fail open: a fetch error never drops a live ad
+                return  # fail open: a fetch error never drops or re-rates an ad
             if is_sold_page(html):
-                sold.add(ad_id)
+                states[ad_id] = ListingState(True, None, None)
+            else:
+                badge, pct = parse_price_rating(html)
+                states[ad_id] = ListingState(False, badge, pct)
 
     await asyncio.gather(*(_check(ad_id, url) for ad_id, url in pairs))
-    return sold
+    return states
 
 
-def find_sold_ad_ids(pairs: list[tuple[int, str]]) -> set[int]:
-    """Return the subset of (ad_id, url) pairs whose listing is sold/removed.
+def inspect_listings(pairs: list[tuple[int, str]]) -> dict[int, ListingState]:
+    """Verify a batch of ads by fetching each page once.
 
-    Runs the page fetches concurrently. Intended for sync/offline contexts
-    (the prune job, the scheduler thread), not inside a running event loop.
+    Returns each ad's sold status and auto.ru price rating from a single fetch,
+    so the prune job re-rates the top deals without any extra requests. Intended
+    for sync/offline contexts (the prune job, the scheduler thread), not inside
+    a running event loop.
 
     Args:
         pairs: (ad_id, url) tuples to verify.
 
     Returns:
-        Set of ad_ids confirmed sold (empty on no input or total fetch failure).
+        Mapping ad_id → ListingState (only for ads whose page was fetched).
     """
     if not pairs:
-        return set()
-    return asyncio.run(_collect_sold(pairs))
+        return {}
+    return asyncio.run(_collect_states(pairs))
 
 
 def _clean_ws(text: str) -> str:

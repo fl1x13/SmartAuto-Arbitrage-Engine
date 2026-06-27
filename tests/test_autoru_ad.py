@@ -144,3 +144,29 @@ class TestIsSoldPage:
         # No sold marker and no og:description → ambiguous → never dropped.
         captcha = "<html><body>Подтвердите, что вы не робот</body></html>"
         assert not is_sold_page(captcha)
+
+
+class TestParsePriceRating:
+    def test_above_estimate_from_detail_page(self):
+        from scraper.autoru_ad import parse_price_rating
+
+        html = ('<html><span class="OfferPriceBadgeNew-cQWc5 PriceUsedOfferNew__badge">'
+                'Выше оценки на 16%</span></html>')
+        assert parse_price_rating(html) == ("Выше оценки на 16%", 16)
+
+    def test_below_estimate_from_detail_page(self):
+        from scraper.autoru_ad import parse_price_rating
+
+        html = '<html><div class="OfferPriceBadgeNew-x">Ниже оценки на 8%</div></html>'
+        assert parse_price_rating(html) == ("Ниже оценки на 8%", -8)
+
+    def test_fair_price_from_detail_page(self):
+        from scraper.autoru_ad import parse_price_rating
+
+        html = '<html><div class="OfferPriceBadgeNew-x">Справедливая цена</div></html>'
+        assert parse_price_rating(html) == ("Справедливая цена", 0)
+
+    def test_no_rating_returns_none(self):
+        from scraper.autoru_ad import parse_price_rating
+
+        assert parse_price_rating("<html><body>no badge here</body></html>") == (None, None)

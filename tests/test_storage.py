@@ -131,3 +131,21 @@ class TestAutoruBadge:
             row = session.get(CarAd, 1)
             assert row.autoru_badge is None
             assert row.autoru_discount_pct is None
+
+
+class TestUpdateAutoruBadges:
+    def test_updates_rating_from_detail_page(self, engine):
+        from scraper.storage import update_autoru_badges
+
+        save_ads([_make_ad(1), _make_ad(2)], engine)
+        n = update_autoru_badges({1: ("Выше оценки на 16%", 16)}, engine)
+        assert n == 1
+        with Session(engine) as session:
+            assert session.get(CarAd, 1).autoru_discount_pct == 16
+            assert session.get(CarAd, 1).autoru_badge == "Выше оценки на 16%"
+            assert session.get(CarAd, 2).autoru_discount_pct is None
+
+    def test_empty_update_is_noop(self, engine):
+        from scraper.storage import update_autoru_badges
+
+        assert update_autoru_badges({}, engine) == 0

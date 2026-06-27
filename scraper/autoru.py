@@ -46,22 +46,19 @@ _BADGE_CLASS = re.compile(r"^ListingItemUniversalPrice__fairPriceBadge")
 _BADGE_PCT_RE = re.compile(r"(\d+)\s*%")
 
 
-def _parse_badge(card: Tag) -> tuple[str | None, int | None]:
-    """Extract auto.ru's own price-rating badge from a card.
+def parse_badge_text(text: str) -> tuple[str | None, int | None]:
+    """Parse auto.ru's price-rating badge text into a signed percent.
 
     Auto.ru grades each listing against its own fair-price estimate — an
-    independent second opinion on whether the car is cheap. The badge reads
-    "Ниже оценки на 15%", "Выше оценки на 3%" or "Справедливая цена".
+    independent second opinion. The badge reads "Ниже оценки на 15%", "Выше
+    оценки на 3%" or "Справедливая цена". Shared by the listing-card parser
+    here and the ad-detail parser (:func:`scraper.autoru_ad.parse_price_rating`).
 
     Returns:
-        (raw badge text, signed percent) — negative below the estimate
-        (cheap), positive above it, 0 for a fair price; (None, None) when no
-        badge is shown, and (text, None) for an unrecognised variant.
+        (raw text, signed percent) — negative below the estimate (cheap),
+        positive above it, 0 for a fair price; (None, None) for empty text,
+        (text, None) for an unrecognised variant.
     """
-    node = card.find(class_=_BADGE_CLASS)
-    if node is None:
-        return None, None
-    text = node.get_text(" ", strip=True)
     if not text:
         return None, None
     low = text.lower()
@@ -73,6 +70,14 @@ def _parse_badge(card: Tag) -> tuple[str | None, int | None]:
     if "справедлив" in low:
         return text, 0
     return text, None  # unknown variant: keep the raw text, no number
+
+
+def _parse_badge(card: Tag) -> tuple[str | None, int | None]:
+    """Extract auto.ru's price-rating badge from a listing card (feed)."""
+    node = card.find(class_=_BADGE_CLASS)
+    if node is None:
+        return None, None
+    return parse_badge_text(node.get_text(" ", strip=True))
 
 
 def _first_srcset_url(srcset: str) -> str:

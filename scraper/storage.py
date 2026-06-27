@@ -205,6 +205,40 @@ def mark_ads_sold(ad_ids: set[int], engine=None) -> int:
     return flagged
 
 
+def update_autoru_badges(
+    badges: dict[int, tuple[str | None, int | None]], engine=None
+) -> int:
+    """Refresh the auto.ru price rating of the given ads from their detail page.
+
+    The listing feed only ever renders "Справедливая цена", but the ad-detail
+    page carries the full "Ниже/Выше оценки на X%" rating. The prune job reads
+    it off the page it already fetches and stores it here, giving every top deal
+    an independent valuation — the automated "second appraiser".
+
+    Args:
+        badges: ad_id → (raw badge text, signed percent).
+        engine: Optional SQLAlchemy engine; creates one from config if not given.
+
+    Returns:
+        Number of ads updated.
+    """
+    if not badges:
+        return 0
+    if engine is None:
+        engine = get_engine()
+    updated = 0
+    with Session(engine) as session:
+        for ad_id, (badge, pct) in badges.items():
+            ad = session.get(CarAd, ad_id)
+            if ad is not None:
+                ad.autoru_badge = badge
+                ad.autoru_discount_pct = pct
+                updated += 1
+        session.commit()
+    logger.info("Refreshed auto.ru badge on %d listings", updated)
+    return updated
+
+
 def get_price_dynamics(engine=None) -> pd.DataFrame:
     """Aggregate price history into per-ad drop statistics.
 

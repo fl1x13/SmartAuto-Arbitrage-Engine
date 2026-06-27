@@ -21,14 +21,24 @@ import pandas as pd
 from config import cfg
 from model.predict import enrich_with_predictions, load_model
 from processing.preprocessor import DataPreprocessor
-from scraper.autoru_ad import find_sold_ad_ids
-from scraper.storage import get_engine, get_price_dynamics, mark_ads_sold
+from scraper.autoru_ad import inspect_listings
+from scraper.storage import (
+    get_engine,
+    get_price_dynamics,
+    mark_ads_sold,
+    update_autoru_badges,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def prune_sold(top_n: int | None = None, engine=None) -> int:
-    """Verify the top-scoring live ads and flag the sold ones.
+    """Verify the top-scoring live ads: flag the sold, re-rate the rest.
+
+    Fetches each top candidate's page once and reads both its liveness and
+    auto.ru's own price rating from it — so the same fetch that drops sold
+    listings also refreshes the independent valuation that vetoes our model's
+    fake discounts, at no extra request cost.
 
     Args:
         top_n: How many highest-scoring ads to check; cfg.liveness_check_top_n
@@ -52,13 +62,22 @@ def prune_sold(top_n: int | None = None, engine=None) -> int:
 
     candidates = df.sort_values("score", ascending=False).head(top_n)
     pairs = list(zip(candidates["ad_id"].astype(int), candidates["url"]))
-    sold = find_sold_ad_ids(pairs)
+    states = inspect_listings(pairs)
+
+    sold = {ad_id for ad_id, st in states.items() if st.sold}
+    badges = {
+        ad_id: (st.badge, st.badge_pct)
+        for ad_id, st in states.items()
+        if not st.sold and st.badge is not None
+    }
     flagged = mark_ads_sold(sold, engine)
+    rerated = update_autoru_badges(badges, engine)
     logger.info(
-        "Liveness check: %d of top %d verified sold, %d newly flagged",
+        "Liveness check: %d of top %d sold (%d flagged); %d re-rated by auto.ru",
         len(sold),
         len(pairs),
         flagged,
+        rerated,
     )
     return flagged
 
