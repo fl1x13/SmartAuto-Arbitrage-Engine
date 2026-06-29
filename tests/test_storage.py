@@ -95,12 +95,15 @@ class TestSoldFlag:
         mark_ads_sold({1}, engine)
         assert mark_ads_sold({1}, engine) == 0  # already sold, not re-counted
 
-    def test_reseen_ad_clears_sold_flag(self, engine):
+    def test_reseen_ad_keeps_sold_flag(self, engine):
+        # auto.ru keeps sold cars in the feed for a while, so a mere re-sighting
+        # must NOT resurrect a flagged listing: the liveness check (which fetches
+        # the page) is the sole authority on `sold`.
         save_ads([_make_ad(1)], engine)
         mark_ads_sold({1}, engine)
-        save_ads([_make_ad(1)], engine)  # reappears in the feed → live again
+        save_ads([_make_ad(1)], engine)  # reappears in the feed
         with Session(engine) as session:
-            assert session.get(CarAd, 1).sold == 0
+            assert session.get(CarAd, 1).sold == 1
 
 
 class TestAutoruBadge:
@@ -113,17 +116,30 @@ class TestAutoruBadge:
             assert row.autoru_badge == "Ниже оценки на 10%"
             assert row.autoru_discount_pct == -10
 
-    def test_badge_refreshed_on_rescrape(self, engine):
-        ad = _make_ad(1)
-        ad.autoru_badge, ad.autoru_discount_pct = "Выше оценки на 5%", 5
-        save_ads([ad], engine)
-        ad2 = _make_ad(1)  # same ad, auto.ru re-rated it cheaper
-        ad2.autoru_badge, ad2.autoru_discount_pct = "Ниже оценки на 8%", -8
-        save_ads([ad2], engine)
+    def test_feed_does_not_clobber_detail_rating(self, engine):
+        # The prune job writes the rich "Ниже/Выше оценки на X%" rating off the
+        # detail page; the listing feed only ever renders "Справедливая цена".
+        # A later feed sighting must not downgrade the richer detail rating.
+        from scraper.storage import update_autoru_badges
+
+        save_ads([_make_ad(1)], engine)
+        update_autoru_badges({1: ("Ниже оценки на 12%", -12)}, engine)
+        fair = _make_ad(1)
+        fair.autoru_badge, fair.autoru_discount_pct = "Справедливая цена", 0
+        save_ads([fair], engine)  # feed re-sighting
         with Session(engine) as session:
             row = session.get(CarAd, 1)
-            assert row.autoru_badge == "Ниже оценки на 8%"
-            assert row.autoru_discount_pct == -8
+            assert row.autoru_badge == "Ниже оценки на 12%"
+            assert row.autoru_discount_pct == -12
+
+    def test_feed_seeds_badge_when_absent(self, engine):
+        # With no prior rating, the feed's "Справедливая цена" may still seed one.
+        save_ads([_make_ad(1)], engine)
+        fair = _make_ad(1)
+        fair.autoru_badge, fair.autoru_discount_pct = "Справедливая цена", 0
+        save_ads([fair], engine)
+        with Session(engine) as session:
+            assert session.get(CarAd, 1).autoru_badge == "Справедливая цена"
 
     def test_no_badge_stays_null(self, engine):
         save_ads([_make_ad(1)], engine)

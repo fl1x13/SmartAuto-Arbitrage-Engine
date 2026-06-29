@@ -231,10 +231,12 @@ class Config:
     })
 
     # Sold-listing prune: how many of the highest-scoring ads to verify live
-    # each cycle. Only ads that could surface as deals are checked, so the
-    # network cost stays bounded; a sold ad's page is fetched and, if its
-    # "продан" banner shows, it is flagged out of every deal surface.
-    liveness_check_top_n: int = 120
+    # each cycle. The same fetch reads auto.ru's own price rating off the detail
+    # page, so this also bounds how many top deals get the independent "second
+    # appraiser" valuation. Wider coverage means fewer sold cars slipping through
+    # and more rated deals, at the cost of more requests (and auto.ru serves a
+    # captcha on a sizable share of them, so this is a balance, not a maximum).
+    liveness_check_top_n: int = 300
 
     # Telegram bot
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

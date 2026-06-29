@@ -149,11 +149,16 @@ def save_ads(ads: list[CarAdSchema], engine=None) -> int:
                 )
                 inserted += 1
             else:
-                # Seen in the feed → it is live; clear any stale sold flag.
-                existing.sold = 0
-                # Auto.ru's badge is a live rating — refresh it each sighting.
-                existing.autoru_badge = ad.autoru_badge
-                existing.autoru_discount_pct = ad.autoru_discount_pct
+                # The liveness check (which actually fetches the page) is the
+                # sole authority on `sold`: auto.ru keeps sold cars in the feed
+                # for a while, so a mere re-sighting must not resurrect a flagged
+                # listing. Likewise the feed only ever renders "Справедливая
+                # цена", so it may *seed* a badge on a row that has none, but must
+                # never clobber the richer "Ниже/Выше оценки на X%" rating the
+                # prune job reads off the detail page (see update_autoru_badges).
+                if existing.autoru_badge is None and ad.autoru_badge is not None:
+                    existing.autoru_badge = ad.autoru_badge
+                    existing.autoru_discount_pct = ad.autoru_discount_pct
                 # Backfill columns on rows scraped before they existed
                 for column in (
                     "drive", "image_url", "fuel_type", "modification", "generation",

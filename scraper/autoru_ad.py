@@ -144,6 +144,11 @@ _BROWSER_HEADERS = {
 }
 
 
+# A removed listing answers with one of these — it is gone for good, so there is
+# no point retrying and the caller treats it as a confirmed sale.
+_GONE_STATUSES = (404, 410)
+
+
 async def _fetch(url: str) -> str:
     headers = {"User-Agent": random.choice(cfg.user_agents), **_BROWSER_HEADERS}
     timeout = aiohttp.ClientTimeout(total=30, connect=10)
@@ -154,6 +159,11 @@ async def _fetch(url: str) -> str:
                 async with session.get(url, headers=headers) as resp:
                     resp.raise_for_status()
                     return await resp.text()
+            except aiohttp.ClientResponseError as e:
+                if e.status in _GONE_STATUSES:
+                    raise  # removed for good — don't waste retries, let it bubble
+                last_exc = e
+                await asyncio.sleep(1.5 * (attempt + 1))
             except (aiohttp.ClientError, TimeoutError, OSError) as e:
                 last_exc = e
                 await asyncio.sleep(1.5 * (attempt + 1))
@@ -261,6 +271,11 @@ async def _collect_states(
         async with semaphore:
             try:
                 html = await _fetch(url)
+            except aiohttp.ClientResponseError as e:
+                if e.status in _GONE_STATUSES:
+                    # Page removed entirely → confirmed sold/withdrawn.
+                    states[ad_id] = ListingState(True, None, None)
+                return  # other HTTP errors are ambiguous: fail open
             except (aiohttp.ClientError, TimeoutError, OSError):
                 return  # fail open: a fetch error never drops or re-rates an ad
             if is_sold_page(html):

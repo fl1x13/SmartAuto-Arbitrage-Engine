@@ -170,3 +170,55 @@ class TestParsePriceRating:
         from scraper.autoru_ad import parse_price_rating
 
         assert parse_price_rating("<html><body>no badge here</body></html>") == (None, None)
+
+
+class TestInspectListings:
+    @staticmethod
+    def _response_error(status: int):
+        import aiohttp
+        from multidict import CIMultiDict
+        from yarl import URL as _URL
+
+        info = aiohttp.RequestInfo(
+            _URL("https://auto.ru/x"), "GET", CIMultiDict(), _URL("https://auto.ru/x")
+        )
+        return aiohttp.ClientResponseError(info, (), status=status)
+
+    def _patch_fetch(self, monkeypatch, behaviour):
+        async def fake_fetch(url):
+            return behaviour()
+
+        monkeypatch.setattr("scraper.autoru_ad._fetch", fake_fetch)
+
+    def test_gone_listing_flagged_sold(self, monkeypatch):
+        # A fully removed listing returns HTTP 404/410 — that is a definite sale,
+        # not a transient block, so it must be flagged sold (not failed open).
+        from scraper.autoru_ad import inspect_listings
+
+        def raise_404():
+            raise self._response_error(404)
+
+        self._patch_fetch(monkeypatch, raise_404)
+        states = inspect_listings([(1, "https://auto.ru/x")])
+        assert states[1].sold is True
+
+    def test_block_status_fails_open(self, monkeypatch):
+        # A 429/403 block is ambiguous — never drop the ad on it.
+        from scraper.autoru_ad import inspect_listings
+
+        def raise_429():
+            raise self._response_error(429)
+
+        self._patch_fetch(monkeypatch, raise_429)
+        states = inspect_listings([(1, "https://auto.ru/x")])
+        assert 1 not in states
+
+    def test_live_page_returns_rating(self, monkeypatch):
+        from scraper.autoru_ad import inspect_listings
+
+        def live_html():
+            return '<html><div class="OfferPriceBadgeNew">Ниже оценки на 8%</div></html>'
+
+        self._patch_fetch(monkeypatch, live_html)
+        states = inspect_listings([(1, "https://auto.ru/x")])
+        assert states[1] == (False, "Ниже оценки на 8%", -8)
